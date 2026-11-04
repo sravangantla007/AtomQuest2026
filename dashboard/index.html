@@ -449,8 +449,8 @@
         ctx.beginPath();
         ctx.moveTo(originX, originY);
         ctx.lineTo(originX + Math.cos(rad) * maxRadius, originY + Math.sin(rad) * maxRadius);
-        ctx.strokeStyle = deg === 0 ? '#0284c7' : '#1e293b';
-        ctx.lineWidth = deg === 0 ? 1.5 : 1;
+        ctx.strokeStyle = '#1e293b'; // Uniform subtle grid line
+        ctx.lineWidth = 1;
         ctx.stroke();
 
         const labelX = originX + Math.cos(rad) * (maxRadius + 14);
@@ -458,14 +458,11 @@
         ctx.fillText(`${deg > 0 ? '+' : ''}${deg}°`, labelX, labelY);
       });
 
-      // 4. Sensor Origin Marker
+      // 4. Sensor Origin Marker (Muted hardware base)
       ctx.beginPath();
-      ctx.arc(originX, originY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#38bdf8';
+      ctx.arc(originX, originY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#475569';
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
 
       // 5. Draw Targets (Sharp FMCW Points, Velocity Vectors, & Distance Labels)
       targets.forEach(tgt => {
