@@ -457,9 +457,9 @@ def main():
             last_radar_print = now
             if len(targets) == 0:
                 print(f"[RADAR] No target in zone | Total Frames: {radar.total_frames_received}")
-            #else:
-             #   for tgt in targets:
-                    #print(f"[RADAR] Target #{tgt['id']}: Dist={tgt['dist_m']}m (X={tgt['x_mm']}mm, Y={tgt['y_mm']}mm) | Speed={tgt['speed_cms']} cm/s")
+            else:
+                for tgt in targets:
+                    print(f"[RADAR] Target #{tgt['id']}: Dist={tgt['dist_m']}m (X={tgt['x_mm']}mm, Y={tgt['y_mm']}mm) | Speed={tgt['speed_cms']} cm/s")
 
         # Periodic sensor update (every 2.0s)
         if time.ticks_diff(now, last_sensor_read) >= 2000:
