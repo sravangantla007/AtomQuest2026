@@ -3,445 +3,510 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NodeVAYU — Real-Time Climate Intelligence Dashboard</title>
+  <title>NodeVAYU — Climate Intelligence Dashboard</title>
   <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
   <style>
     :root {
-      --background: #0b0f19;
-      --card: #111827;
-      --card-muted: #1e293b;
-      --border: #334155;
-      --foreground: #f8fafc;
-      --muted-foreground: #94a3b8;
-      --primary: #06b6d4;
-      --primary-glow: rgba(6, 182, 212, 0.4);
-      --emerald: #10b981;
+      --bg: #090d16;
+      --panel: #0f172a;
+      --panel-sub: #1e293b;
+      --border: #223049;
+      --text-main: #f1f5f9;
+      --text-dim: #94a3b8;
+      --accent: #0ea5e9;
+      --accent-glow: rgba(14, 165, 233, 0.25);
+      --green: #10b981;
       --amber: #f59e0b;
-      --rose: #f43f5e;
+      --rose: #ef4444;
     }
     body {
-      background-color: var(--background);
-      color: var(--foreground);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
     }
-    @keyframes spin-fan {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+    .font-mono-num {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-variant-numeric: tabular-nums;
     }
-    .spinning {
-      animation: spin-fan linear infinite;
+    .panel {
+      background-color: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
     }
-    .hud-led {
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    .slider-thumb::-webkit-slider-thumb {
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #0ea5e9;
+      border: 2px solid #ffffff;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(14, 165, 233, 0.6);
     }
-    .hud-led.on {
-      box-shadow: 0 0 16px var(--primary), inset 0 0 6px #ffffff;
-      background-color: #38bdf8;
-      border-color: #e0f2fe;
-    }
-    .radar-canvas-container {
-      position: relative;
-      background: radial-gradient(circle, #0f172a 0%, #030712 100%);
+    .slider-thumb::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #0ea5e9;
+      border: 2px solid #ffffff;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(14, 165, 233, 0.6);
     }
   </style>
 </head>
-<body class="min-h-screen p-4 md:p-6 lg:p-8 antialiased">
-  <div class="max-w-7xl mx-auto space-y-6">
+<body class="min-h-screen p-3 md:p-6 lg:p-8">
+  <div class="max-w-7xl mx-auto space-y-5">
 
-    <!-- HEADER & STATUS BAR -->
-    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-lg">
-      <div>
-        <div class="flex items-center gap-3">
-          <div class="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></div>
-          <h1 class="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-            NodeVAYU <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">Edge AI Supervisor</span>
-          </h1>
+    <!-- TOP BAR -->
+    <header class="panel p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-emerald-400" id="status-indicator"></div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white">NodeVAYU</h1>
+            <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono">Core v1.0</span>
+            <span id="conn-pill" class="text-xs px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800">CONNECTED</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">
+            24 GHz mmWave Radar (HLK-LD2450) &bull; HW-220 T/RH &bull; STM8 DRV10983 38kHz IR Link
+          </p>
         </div>
-        <p class="text-sm text-[var(--muted-foreground)] mt-1">
-          24GHz FMCW Radar (HLK-LD2450) &bull; HW-220 T/RH Sensor &bull; STM8 DRV10983 38kHz IR Link
-        </p>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2.5">
-        <button id="btn-web-serial" onclick="toggleWebSerial()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-cyan-600 bg-cyan-950/60 hover:bg-cyan-900 text-cyan-300 transition flex items-center gap-2 cursor-pointer shadow-sm">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          <span id="serial-btn-text">Connect USB Serial</span>
+      <!-- CONNECTION STATUS & SIM TOGGLE -->
+      <div class="flex items-center gap-2 text-xs">
+        <button id="btn-toggle-demo" onclick="toggleDemoMode()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer font-medium">
+          Demo Stream: <strong id="demo-state" class="text-emerald-400">OFF</strong>
         </button>
-
-        <button id="btn-toggle-sim" onclick="toggleSimulation()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-emerald-600 bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 transition flex items-center gap-2 cursor-pointer shadow-sm">
-          <span id="sim-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-          <span id="sim-btn-text">Sim Engine: ACTIVE</span>
-        </button>
+        <span class="text-slate-500 font-mono" id="stream-rate">5 Hz Stream</span>
       </div>
     </header>
 
-    <!-- MAIN GRID -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- GRID LAYOUT -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
-      <!-- COLUMN 1: RADAR SPATIAL TRACKING (5 COLS) -->
-      <section class="lg:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 flex flex-col gap-4 shadow-md">
-        <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+      <!-- SECTION 1: 24 GHz mmWAVE RADAR SCREEN (7 COLS) -->
+      <section class="lg:col-span-7 panel p-4 md:p-5 flex flex-col gap-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
           <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
-            <h2 class="font-semibold text-base text-white">24GHz mmWave Radar Tracking</h2>
+            <div class="w-2 h-2 rounded-full bg-cyan-400"></div>
+            <h2 class="font-semibold text-sm md:text-base text-white tracking-wide">24 GHz mmWave Radar Spatial Field (HLK-LD2450)</h2>
           </div>
-          <span id="radar-target-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-cyan-900/60 text-cyan-300 border border-cyan-700 font-mono">1 Target In Field</span>
+          <span id="target-count-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+            0 Targets Active
+          </span>
         </div>
 
-        <!-- RADAR CANVAS -->
-        <div class="radar-canvas-container rounded-xl border border-[var(--border)] overflow-hidden flex items-center justify-center p-2">
-          <canvas id="radarCanvas" width="400" height="360" class="w-full max-w-md"></canvas>
+        <!-- RADAR CANVAS (FMCW POINT CLOUD FIELD) -->
+        <div class="w-full bg-slate-950 rounded-lg border border-slate-800 p-2 flex items-center justify-center overflow-hidden">
+          <canvas id="radarCanvas" width="560" height="380" class="w-full max-w-xl h-auto block"></canvas>
         </div>
 
-        <!-- TARGETS DATA CARDS -->
-        <div id="targets-list" class="space-y-2 mt-auto">
-          <!-- Populated by JS -->
+        <!-- TARGETS TELEMETRY TABLE -->
+        <div class="border border-slate-800 rounded-lg overflow-hidden">
+          <div class="bg-slate-900/80 px-3 py-2 text-xs font-semibold text-slate-400 border-b border-slate-800 grid grid-cols-5 text-center">
+            <span>TARGET ID</span>
+            <span>DISTANCE</span>
+            <span>POSITION (X, Y)</span>
+            <span>VELOCITY</span>
+            <span>RESOLUTION</span>
+          </div>
+          <div id="target-rows" class="divide-y divide-slate-800 text-xs font-mono text-center">
+            <div class="py-3 text-slate-500">No targets currently in detection zone</div>
+          </div>
         </div>
       </section>
 
-      <!-- COLUMN 2: ENVIRONMENTAL METRICS (3 COLS) -->
-      <section class="lg:col-span-3 flex flex-col gap-4">
-        <!-- AMBIENT TEMPERATURE CARD -->
-        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-md flex-1 flex flex-col justify-between">
-          <div class="flex items-center justify-between text-xs font-semibold text-[var(--muted-foreground)]">
-            <span class="flex items-center gap-1.5 text-amber-400">
+      <!-- SECTION 2: ENVIRONMENTAL & SENSORS (5 COLS) -->
+      <section class="lg:col-span-5 flex flex-col gap-5">
+
+        <!-- TEMPERATURE METRIC -->
+        <div class="panel p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+            <span class="flex items-center gap-1.5 text-amber-400 font-semibold">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              TEMPERATURE (HW-220)
+              TEMPERATURE (HW-220 / HTU21D)
             </span>
-            <span class="font-mono text-xs text-slate-400">0x40 I2C1</span>
+            <span class="font-mono text-slate-500">Addr: 0x40 (I2C1)</span>
           </div>
-          <div class="my-4">
-            <div class="flex items-baseline gap-2">
-              <span id="val-temp-c" class="text-4xl font-extrabold text-white font-mono">27.8</span>
-              <span class="text-lg text-slate-400 font-medium">°C</span>
-              <span id="val-temp-f" class="text-xs text-slate-500 font-mono ml-auto">82.0 °F</span>
+          <div class="my-3 flex items-baseline justify-between">
+            <div>
+              <span id="val-temp" class="text-4xl md:text-5xl font-bold font-mono-num text-white">28.4</span>
+              <span class="text-xl text-slate-400 font-semibold ml-1">°C</span>
             </div>
-            <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-              <div id="bar-temp" class="bg-gradient-to-r from-cyan-500 via-amber-400 to-rose-500 h-2 rounded-full transition-all duration-500" style="width: 55%"></div>
+            <div class="text-right">
+              <span id="val-temp-f" class="text-sm font-mono text-slate-400">83.1 °F</span>
+              <div class="text-xs text-amber-300 font-medium mt-0.5" id="lbl-temp-state">Comfort Zone</div>
             </div>
           </div>
-          <div class="flex justify-between items-center text-xs text-[var(--muted-foreground)] border-t border-slate-800 pt-3">
-            <span>Thermal Comfort: <strong id="lbl-temp-state" class="text-amber-300">Warm</strong></span>
-            <span>Range: 18–35°C</span>
+          <div class="w-full h-8">
+            <svg id="spark-temp" class="w-full h-full" viewBox="0 0 200 30" preserveAspectRatio="none">
+              <path d="M0,15 L200,15" stroke="#f59e0b" stroke-width="2" fill="none" />
+            </svg>
           </div>
         </div>
 
-        <!-- RELATIVE HUMIDITY CARD -->
-        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-md flex-1 flex flex-col justify-between">
-          <div class="flex items-center justify-between text-xs font-semibold text-[var(--muted-foreground)]">
-            <span class="flex items-center gap-1.5 text-cyan-400">
+        <!-- RELATIVE HUMIDITY METRIC -->
+        <div class="panel p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+            <span class="flex items-center gap-1.5 text-cyan-400 font-semibold">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
               RELATIVE HUMIDITY
             </span>
-            <span class="font-mono text-xs text-slate-400">HTU21D</span>
+            <span class="font-mono text-slate-500">HTU21D</span>
           </div>
-          <div class="my-4">
-            <div class="flex items-baseline gap-2">
-              <span id="val-humidity" class="text-4xl font-extrabold text-white font-mono">58.4</span>
-              <span class="text-lg text-slate-400 font-medium">%</span>
+          <div class="my-3 flex items-baseline justify-between">
+            <div>
+              <span id="val-rh" class="text-4xl md:text-5xl font-bold font-mono-num text-white">58.2</span>
+              <span class="text-xl text-slate-400 font-semibold ml-1">%</span>
             </div>
-            <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-              <div id="bar-humidity" class="bg-gradient-to-r from-blue-600 via-cyan-400 to-teal-300 h-2 rounded-full transition-all duration-500" style="width: 58%"></div>
+            <div class="text-right">
+              <div class="text-xs text-emerald-400 font-medium" id="lbl-rh-state">Optimal (40–60%)</div>
+              <div class="text-xs text-slate-400 font-mono mt-0.5">Dew Point: <strong id="val-dewpoint" class="text-slate-200">19.4°C</strong></div>
             </div>
           </div>
-          <div class="flex justify-between items-center text-xs text-[var(--muted-foreground)] border-t border-slate-800 pt-3">
-            <span>Moisture: <strong id="lbl-humid-state" class="text-emerald-400">Optimal</strong></span>
-            <span>Dew Point: <strong id="val-dewpoint" class="text-white font-mono">18.9°C</strong></span>
+          <div class="w-full h-8">
+            <svg id="spark-rh" class="w-full h-full" viewBox="0 0 200 30" preserveAspectRatio="none">
+              <path d="M0,15 L200,15" stroke="#0ea5e9" stroke-width="2" fill="none" />
+            </svg>
           </div>
         </div>
 
-        <!-- HEAT INDEX / APPARENT TEMP -->
-        <div class="bg-gradient-to-br from-cyan-950/40 to-slate-900 border border-cyan-900/60 rounded-2xl p-4 shadow-md flex items-center justify-between">
+        <!-- HEAT INDEX & CLIMATE INTELLIGENCE -->
+        <div class="panel p-4 bg-gradient-to-br from-slate-900 to-slate-950 flex items-center justify-between">
           <div>
-            <div class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Heat Index (Feels Like)</div>
-            <div class="text-2xl font-bold font-mono text-white mt-1"><span id="val-heat-index">29.6</span> °C</div>
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Heat Index (Apparent Temp)</div>
+            <div class="text-2xl font-bold font-mono text-white mt-1">
+              <span id="val-heat-index">30.2</span> <span class="text-sm font-normal text-slate-400">°C</span>
+            </div>
           </div>
           <div class="text-right text-xs text-slate-400">
-            <div>TinyML Baseline:</div>
-            <div class="font-mono text-cyan-300 font-semibold" id="val-base-rpm">870 RPM</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- COLUMN 3: FAN ACTUATION & CIRCULAR HUD (4 COLS) -->
-      <section class="lg:col-span-4 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 flex flex-col gap-5 shadow-md">
-        <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
-            <h2 class="font-semibold text-base text-white">Atomberg Motor Actuator</h2>
-          </div>
-          <span id="fan-power-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-mono">SPINNING</span>
-        </div>
-
-        <!-- CIRCULAR HUD & FAN SIMULATOR -->
-        <div class="flex flex-col items-center justify-center p-4 bg-slate-950/60 rounded-xl border border-slate-800 relative">
-          <!-- 6 CIRCULAR LED HUD CONTAINER -->
-          <div class="relative w-44 h-44 flex items-center justify-center">
-            <!-- 6 LEDs positioned in circle -->
-            <!-- LED 1: 12 o'clock (PA1) -->
-            <div id="led-1" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 top-2 left-20"></div>
-            <!-- LED 2: 2 o'clock (PC5) -->
-            <div id="led-2" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 top-9 right-4"></div>
-            <!-- LED 3: 4 o'clock (PC4) -->
-            <div id="led-3" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 bottom-9 right-4"></div>
-            <!-- LED 4: 6 o'clock (PC3) -->
-            <div id="led-4" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 bottom-2 left-20"></div>
-            <!-- LED 5: 8 o'clock (PC7) -->
-            <div id="led-5" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 bottom-9 left-4"></div>
-            <!-- LED 6: 10 o'clock (PD2) -->
-            <div id="led-6" class="hud-led absolute w-4 h-4 rounded-full bg-slate-800 border border-slate-600 top-9 left-4"></div>
-
-            <!-- CENTRAL SPINNING FAN ICON -->
-            <div id="fan-blades-icon" class="w-20 h-20 rounded-full flex items-center justify-center text-cyan-400 bg-slate-900/90 border border-slate-700 shadow-inner spinning" style="animation-duration: 0.6s;">
-              <svg class="w-12 h-12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-              </svg>
-            </div>
-          </div>
-
-          <!-- SPEED & RPM READOUT -->
-          <div class="mt-4 text-center">
-            <div class="text-3xl font-extrabold font-mono text-white tracking-tight">
-              <span id="disp-rpm">1050</span> <span class="text-sm font-sans font-normal text-slate-400">RPM</span>
-            </div>
-            <div class="text-xs text-slate-400 mt-0.5">
-              Level: <strong id="disp-level" class="text-cyan-400 font-mono">3</strong> &bull; Raw Counts: <strong id="disp-counts" class="text-slate-300 font-mono">330 / 511</strong> (65%)
-            </div>
+            <div>Target Comfort Speed:</div>
+            <div class="font-mono text-cyan-300 font-bold text-base mt-0.5" id="val-recommended-rpm">1050 RPM</div>
           </div>
         </div>
 
-        <!-- MANUAL ACTUATION CONTROLS -->
-        <div class="space-y-3">
-          <div class="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-            <span class="font-medium">Direct Speed Command:</span>
-            <span id="slider-val" class="font-mono text-cyan-400">330 counts</span>
-          </div>
-          <input id="speed-slider" type="range" min="0" max="511" value="330" oninput="onSpeedSlider(this.value)" class="w-full accent-cyan-400 cursor-pointer">
-
-          <!-- LEVEL BUTTONS (0 to 6) -->
-          <div class="grid grid-cols-7 gap-1">
-            <button onclick="sendLevelCommand(0)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-rose-400 border border-slate-700 transition cursor-pointer">OFF</button>
-            <button onclick="sendLevelCommand(1)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L1</button>
-            <button onclick="sendLevelCommand(2)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L2</button>
-            <button onclick="sendLevelCommand(3)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L3</button>
-            <button onclick="sendLevelCommand(4)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L4</button>
-            <button onclick="sendLevelCommand(5)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L5</button>
-            <button onclick="sendLevelCommand(6)" class="py-1.5 text-xs font-mono font-semibold rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer">L6</button>
-          </div>
-
-          <!-- LIGHTING MODE SELECTOR -->
-          <div class="pt-2">
-            <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">HUD Lighting Mode:</label>
-            <select id="select-light-mode" onchange="sendLightMode(this.value)" class="w-full text-xs bg-slate-800 border border-slate-700 text-white rounded-lg p-2 font-mono">
-              <option value="1">Mode 1: Speed Level Bar Gauge (Default)</option>
-              <option value="0">Mode 0: Diagnostic Debug HUD</option>
-              <option value="2">Mode 2: Stealth Dark Mode</option>
-              <option value="3">Mode 3: Night Light Full (All 6 LEDs)</option>
-              <option value="4">Mode 4: Night Light Half (Triangle)</option>
-              <option value="5">Mode 5: Single Subtle Beacon</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 32-BIT IR PACKET INSPECTOR -->
-        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono">
-          <div class="text-[var(--muted-foreground)] flex justify-between items-center mb-1">
-            <span>Last 32-Bit IR Frame:</span>
-            <span class="text-cyan-400">Addr: 0xAF</span>
-          </div>
-          <div class="text-base font-bold text-emerald-400" id="disp-last-packet">0xAF02E003</div>
-          <div class="text-slate-400 mt-1 flex justify-between text-[11px]">
-            <span>CMD: <strong id="disp-cmd-name" class="text-white">SET_LEVEL</strong></span>
-            <span>CRC-4: <strong id="disp-crc" class="text-cyan-300">0xE</strong></span>
-          </div>
-        </div>
       </section>
 
     </div>
 
-    <!-- TINYML CLOSED-LOOP ADAPTATION FORMULA SECTION -->
-    <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-md">
-      <div class="flex items-center justify-between border-b border-[var(--border)] pb-3 mb-4">
-        <h3 class="font-semibold text-base text-white flex items-center gap-2">
-          <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-          TinyML Continuous Closed-Loop Comfort Engine
-        </h3>
-        <span class="text-xs px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 font-mono">Stepless 9-Bit Actuation</span>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-        <!-- BASE RPM -->
-        <div class="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Base RPM (T & RH)</div>
-          <div class="text-2xl font-bold font-mono text-cyan-400 mt-1" id="calc-base-rpm">870</div>
-          <div class="text-[11px] text-slate-500 mt-0.5">Heat Index Lookup</div>
+    <!-- SECTION 3: FAN THROTTLE INDICATOR & CONTROLS -->
+    <section class="panel p-4 md:p-6 space-y-6">
+      
+      <!-- HEADER WITH LIVE READOUT -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Fan Throttle & Motor Actuator</span>
+            <span id="fan-state-badge" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
+              RUNNING
+            </span>
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">TI DRV10983 3-Phase BLDC Driver &bull; 9-Bit Continuous PWM Control ($0 \dots 511$ Counts)</p>
         </div>
 
-        <!-- DELTA RPM (RADAR PROXIMITY) -->
-        <div class="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">&Delta;RPM (Distance Gating)</div>
-          <div class="text-2xl font-bold font-mono text-emerald-400 mt-1" id="calc-delta-rpm">+180</div>
-          <div class="text-[11px] text-slate-500 mt-0.5">Occupant at 2.4 m</div>
-        </div>
-
-        <!-- TARGET RPM -->
-        <div class="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">Final Target RPM</div>
-          <div class="text-2xl font-bold font-mono text-purple-300 mt-1" id="calc-target-rpm">1050</div>
-          <div class="text-[11px] text-slate-500 mt-0.5">Clamped [0..1450]</div>
-        </div>
-
-        <!-- 9-BIT DRV10983 COMMAND -->
-        <div class="p-3.5 bg-slate-900 rounded-xl border border-slate-800">
-          <div class="text-xs text-slate-400 uppercase tracking-wider">DRV10983 9-Bit Count</div>
-          <div class="text-2xl font-bold font-mono text-white mt-1" id="calc-counts">330 <span class="text-xs text-slate-400">/ 511</span></div>
-          <div class="text-[11px] text-slate-500 mt-0.5">Registers 0x00 & 0x01</div>
+        <div class="flex items-center gap-4 text-right">
+          <div>
+            <div class="text-xs text-slate-400 font-medium">Motor Velocity:</div>
+            <div class="text-2xl font-bold font-mono text-white"><span id="fan-rpm">1050</span> <span class="text-xs text-slate-400">RPM</span></div>
+          </div>
+          <div class="border-l border-slate-800 pl-4">
+            <div class="text-xs text-slate-400 font-medium">Throttle Setting:</div>
+            <div class="text-2xl font-bold font-mono text-cyan-400"><span id="fan-pct">65</span>%</div>
+          </div>
         </div>
       </div>
-    </section>
 
-    <!-- LIVE TELEMETRY LOG -->
-    <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-md">
-      <div class="flex items-center justify-between border-b border-[var(--border)] pb-2 mb-3">
-        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-          <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-          Telemetry & Optical Frame Log
-        </h4>
-        <button onclick="document.getElementById('serial-log').innerHTML=''" class="text-xs text-slate-500 hover:text-slate-300 transition cursor-pointer">Clear Log</button>
+      <!-- THROTTLE BAR GAUGE (0 to 100% / 0 to 511) -->
+      <div class="space-y-2">
+        <div class="flex justify-between text-xs font-mono text-slate-400">
+          <span>0 (OFF)</span>
+          <span>L1 (200)</span>
+          <span>L2 (265)</span>
+          <span>L3 (330)</span>
+          <span>L4 (395)</span>
+          <span>L5 (455)</span>
+          <span>L6 / Turbo (511)</span>
+        </div>
+        <div class="w-full bg-slate-950 h-5 rounded-md p-1 border border-slate-800 overflow-hidden relative">
+          <div id="throttle-fill-bar" class="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-emerald-400 rounded transition-all duration-200" style="width: 65%;"></div>
+        </div>
       </div>
-      <div id="serial-log" class="bg-black/80 text-emerald-400 font-mono text-xs p-3 rounded-xl h-36 overflow-y-auto space-y-1 border border-slate-800 shadow-inner">
-        <div>[SYSTEM] NodeVAYU Web Interface Initialized.</div>
-        <div>[RADAR] HLK-LD2450 Stream Active (UART0 @ 256,000 bps).</div>
-        <div>[SENSOR] HW-220 HTU21D Connected on I2C1 (0x40).</div>
-        <div>[IR LINK] 38.0 kHz Carrier Actuator Active on GPIO 16.</div>
+
+      <!-- ADJUSTABLE THROTTLE SLIDER & INPUT -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-950/70 p-4 rounded-xl border border-slate-800">
+        <div class="md:col-span-8 flex flex-col gap-1">
+          <div class="flex justify-between text-xs font-medium text-slate-300">
+            <span>Continuous Throttle Adjustment:</span>
+            <span class="font-mono text-cyan-400" id="slider-count-display">330 counts (65%)</span>
+          </div>
+          <input id="slider-throttle" type="range" min="0" max="511" value="330" oninput="onThrottleSlider(this.value)" class="w-full accent-sky-400 slider-thumb cursor-pointer h-2 bg-slate-800 rounded-lg">
+        </div>
+
+        <div class="md:col-span-4 flex items-center gap-2">
+          <input id="input-counts" type="number" min="0" max="511" value="330" class="w-28 px-3 py-1.5 rounded bg-slate-900 border border-slate-700 font-mono text-white text-sm text-center focus:outline-none focus:border-cyan-500">
+          <button onclick="applyDirectCounts()" class="px-4 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs transition cursor-pointer">
+            Set Throttle
+          </button>
+        </div>
       </div>
+
+      <!-- DISCRETE SPEED PRESETS (0 to 6) -->
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">Discrete Level Presets:</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+          <button onclick="setLevel(0)" class="py-2.5 px-3 rounded-lg border border-rose-900 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 font-mono text-xs font-bold transition cursor-pointer text-center">
+            0: OFF
+          </button>
+          <button onclick="setLevel(1)" class="py-2.5 px-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-200 font-mono text-xs font-semibold transition cursor-pointer text-center">
+            L1 (200)
+          </button>
+          <button onclick="setLevel(2)" class="py-2.5 px-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-200 font-mono text-xs font-semibold transition cursor-pointer text-center">
+            L2 (265)
+          </button>
+          <button onclick="setLevel(3)" class="py-2.5 px-3 rounded-lg border border-cyan-700 bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 font-mono text-xs font-bold transition cursor-pointer text-center ring-1 ring-cyan-500">
+            L3 (330)
+          </button>
+          <button onclick="setLevel(4)" class="py-2.5 px-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-200 font-mono text-xs font-semibold transition cursor-pointer text-center">
+            L4 (395)
+          </button>
+          <button onclick="setLevel(5)" class="py-2.5 px-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-200 font-mono text-xs font-semibold transition cursor-pointer text-center">
+            L5 (455)
+          </button>
+          <button onclick="setLevel(6)" class="py-2.5 px-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-amber-300 font-mono text-xs font-bold transition cursor-pointer text-center">
+            L6 Turbo (511)
+          </button>
+        </div>
+      </div>
+
+      <!-- PRIMARY ACTION CONTROLS -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-2">
+        <button onclick="sendAction('on')" class="py-3 px-4 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs tracking-wide uppercase transition cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          START / POWER ON
+        </button>
+
+        <button onclick="sendAction('off')" class="py-3 px-4 rounded-lg bg-rose-800 hover:bg-rose-700 text-white font-semibold text-xs tracking-wide uppercase transition cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+          STOP / FAN OFF
+        </button>
+
+        <button onclick="sendAction('toggle')" class="py-3 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs tracking-wide uppercase transition cursor-pointer flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+          TOGGLE POWER
+        </button>
+
+        <button onclick="sendAction('step_up')" class="py-3 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs tracking-wide transition cursor-pointer flex items-center justify-center gap-2">
+          <span class="font-bold text-sm">+</span> STEP SPEED UP
+        </button>
+
+        <button onclick="sendAction('step_down')" class="py-3 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs tracking-wide transition cursor-pointer flex items-center justify-center gap-2">
+          <span class="font-bold text-sm">&minus;</span> STEP SPEED DOWN
+        </button>
+      </div>
+
+      <!-- HUD LIGHTING MODES SELECTOR -->
+      <div class="border-t border-slate-800 pt-4">
+        <label class="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">Circular LED HUD Lighting Modes:</label>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <button onclick="setLightMode(0)" class="p-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs text-left transition cursor-pointer">
+            <div class="font-semibold text-white">Mode 0</div>
+            <div class="text-[11px] text-slate-400">Diagnostic HUD</div>
+          </button>
+
+          <button onclick="setLightMode(1)" class="p-2.5 rounded-lg border border-cyan-700 bg-cyan-950/40 text-cyan-200 text-xs text-left transition cursor-pointer ring-1 ring-cyan-500">
+            <div class="font-semibold text-white">Mode 1 (Default)</div>
+            <div class="text-[11px] text-slate-400">Level Gauge (1..6)</div>
+          </button>
+
+          <button onclick="setLightMode(2)" class="p-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs text-left transition cursor-pointer">
+            <div class="font-semibold text-white">Mode 2</div>
+            <div class="text-[11px] text-slate-400">Stealth Dark</div>
+          </button>
+
+          <button onclick="setLightMode(3)" class="p-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs text-left transition cursor-pointer">
+            <div class="font-semibold text-white">Mode 3</div>
+            <div class="text-[11px] text-slate-400">Night Light Full</div>
+          </button>
+
+          <button onclick="setLightMode(4)" class="p-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs text-left transition cursor-pointer">
+            <div class="font-semibold text-white">Mode 4</div>
+            <div class="text-[11px] text-slate-400">Night Half (Triangle)</div>
+          </button>
+
+          <button onclick="setLightMode(5)" class="p-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs text-left transition cursor-pointer">
+            <div class="font-semibold text-white">Mode 5</div>
+            <div class="text-[11px] text-slate-400">Single Beacon</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 32-BIT IR FRAME & HARDWARE DIAGNOSTICS -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4 border-t border-slate-800 pt-4">
+        <!-- FRAME INSPECTOR (8 COLS) -->
+        <div class="md:col-span-8 bg-slate-950 p-3.5 rounded-xl border border-slate-800 font-mono text-xs">
+          <div class="text-slate-400 flex justify-between items-center mb-1">
+            <span>Last Transmitted 32-Bit Optical Packet:</span>
+            <span class="text-cyan-400 font-bold">Network Address: 0xAF</span>
+          </div>
+          <div class="text-xl font-bold text-emerald-400 tracking-wider" id="disp-packet-hex">0xAF02E003</div>
+          <div class="text-slate-400 mt-2 flex flex-wrap gap-4 text-xs border-t border-slate-800/80 pt-2">
+            <span>Opcode: <strong class="text-white" id="disp-opcode">0x02</strong></span>
+            <span>Payload: <strong class="text-white" id="disp-payload">Level 3 (330)</strong></span>
+            <span>CRC-4: <strong class="text-cyan-300" id="disp-crc">0xE (Valid)</strong></span>
+            <span>Status: <strong class="text-emerald-400">ACK Confirmed</strong></span>
+          </div>
+        </div>
+
+        <!-- CAMERA BURST TEST (4 COLS) -->
+        <div class="md:col-span-4 bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+          <div class="text-xs font-semibold text-slate-300">Optical Camera Diagnostic</div>
+          <p class="text-[11px] text-slate-400 mt-1">Emits steady 38.0 kHz PWM carrier on GPIO 16 so you can verify the IR LED with your phone camera.</p>
+          <div class="flex items-center gap-2 mt-3">
+            <button onclick="triggerCarrierBurst(3)" class="flex-1 py-1.5 px-3 rounded bg-cyan-700 hover:bg-cyan-600 text-white font-medium text-xs transition cursor-pointer">
+              Carrier 3s
+            </button>
+            <button onclick="triggerCarrierBurst(5)" class="flex-1 py-1.5 px-3 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium text-xs transition cursor-pointer">
+              Carrier 5s
+            </button>
+          </div>
+        </div>
+      </div>
+
     </section>
 
   </div>
 
+  <!-- CLIENT LOGIC & DATA STREAM -->
   <script>
     // =========================================================================
-    // STATE & VARIABLES
+    // STATE & CONFIGURATION
     // =========================================================================
-    let isSimulating = true;
-    let serialPort = null;
-    let serialReader = null;
-    let serialWriter = null;
-
-    let currentTemp = 27.8;
-    let currentHumid = 58.4;
-    let currentSpeedCounts = 330;
+    let demoModeActive = false;
+    let pollInterval = null;
+    let currentCounts = 330;
     let currentLevel = 3;
-    let currentLightMode = 1;
-    let fanIsOn = true;
+    let currentMode = 1;
 
-    // Simulated Radar Targets
-    let radarAngle = 0;
-    let targets = [
-      { id: 1, x: 750, y: 2200, speed: -12, dist: 2.32, angle: 18 }
-    ];
+    let tempHistory = [28.2, 28.3, 28.4, 28.5, 28.4, 28.4, 28.5, 28.6, 28.5, 28.4, 28.4, 28.5];
+    let rhHistory = [58.0, 58.1, 58.3, 58.2, 58.0, 58.2, 58.4, 58.3, 58.2, 58.1, 58.2, 58.2];
 
-    const PRESET_SPEEDS = [0, 200, 265, 330, 395, 455, 511];
+    const radarCanvas = document.getElementById('radarCanvas');
+    const ctx = radarCanvas.getContext('2d');
 
     // =========================================================================
-    // RADAR CANVAS RENDERING
+    // 24 GHz mmWAVE RADAR RENDERING (FMCW POINT CLOUD, NO ROTATING SWEEP)
     // =========================================================================
-    const canvas = document.getElementById('radarCanvas');
-    const ctx = canvas.getContext('2d');
+    function drawRadarField(targets = []) {
+      const w = radarCanvas.width;
+      const h = radarCanvas.height;
 
-    function drawRadar() {
-      const w = canvas.width;
-      const h = canvas.height;
+      // Clear dark background
+      ctx.fillStyle = '#030712';
+      ctx.fillRect(0, 0, w, h);
+
+      // Sensor origin at bottom center
       const originX = w / 2;
-      const originY = h - 20;
+      const originY = h - 25;
+      const maxRadius = h - 50; // maps to 6.0 meters
       const maxDistM = 6.0;
-      const maxRadius = h - 40;
 
-      ctx.clearRect(0, 0, w, h);
-
-      // Draw FOV Cone (120 degrees: -60 to +60)
-      ctx.save();
+      // 1. Draw FOV Arc (+/- 60 degrees from normal)
+      const fovAngle = (60 * Math.PI) / 180;
       ctx.beginPath();
       ctx.moveTo(originX, originY);
-      ctx.arc(originX, originY, maxRadius, -Math.PI / 2 - Math.PI / 3, -Math.PI / 2 + Math.PI / 3);
+      ctx.arc(originX, originY, maxRadius, -Math.PI / 2 - fovAngle, -Math.PI / 2 + fovAngle, false);
       ctx.closePath();
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.05)';
+      ctx.fillStyle = '#061021';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(51, 65, 85, 0.6)';
+      ctx.strokeStyle = '#1e293b';
       ctx.lineWidth = 1;
       ctx.stroke();
-      ctx.restore();
 
-      // Range Rings (1m to 6m)
-      ctx.strokeStyle = 'rgba(51, 65, 85, 0.5)';
-      ctx.lineWidth = 1;
+      // 2. Draw Distance Range Arcs (1m to 6m)
       ctx.fillStyle = '#64748b';
-      ctx.font = '10px monospace';
+      ctx.font = '10px ui-monospace, monospace';
+      ctx.textAlign = 'center';
 
       for (let m = 1; m <= 6; m++) {
         const r = (m / maxDistM) * maxRadius;
         ctx.beginPath();
-        ctx.arc(originX, originY, r, -Math.PI / 2 - Math.PI / 3, -Math.PI / 2 + Math.PI / 3);
+        ctx.arc(originX, originY, r, -Math.PI / 2 - fovAngle, -Math.PI / 2 + fovAngle, false);
+        ctx.strokeStyle = (m % 2 === 0) ? '#334155' : '#1e293b';
+        ctx.lineWidth = (m % 2 === 0) ? 1.2 : 0.8;
         ctx.stroke();
-        ctx.fillText(m + 'm', originX + 5, originY - r + 12);
+
+        // Label on central axis
+        ctx.fillText(`${m}m`, originX, originY - r - 3);
       }
 
-      // Origin Point (Radar Sensor)
+      // 3. Radial Angle Lines (-60, -30, 0, +30, +60 deg)
+      const angles = [-60, -30, 0, 30, 60];
+      angles.forEach(deg => {
+        const rad = ((deg - 90) * Math.PI) / 180;
+        ctx.beginPath();
+        ctx.moveTo(originX, originY);
+        ctx.lineTo(originX + Math.cos(rad) * maxRadius, originY + Math.sin(rad) * maxRadius);
+        ctx.strokeStyle = deg === 0 ? '#0284c7' : '#1e293b';
+        ctx.lineWidth = deg === 0 ? 1.5 : 1;
+        ctx.stroke();
+
+        const labelX = originX + Math.cos(rad) * (maxRadius + 14);
+        const labelY = originY + Math.sin(rad) * (maxRadius + 14);
+        ctx.fillText(`${deg > 0 ? '+' : ''}${deg}°`, labelX, labelY);
+      });
+
+      // 4. Sensor Origin Marker
       ctx.beginPath();
       ctx.arc(originX, originY, 5, 0, Math.PI * 2);
       ctx.fillStyle = '#38bdf8';
       ctx.fill();
-
-      // Sweeping Beam Animation
-      radarAngle += 0.035;
-      const sweepAngle = -Math.PI / 2 + Math.sin(radarAngle) * (Math.PI / 3);
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(originX, originY);
-      ctx.lineTo(originX + Math.cos(sweepAngle) * maxRadius, originY + Math.sin(sweepAngle) * maxRadius);
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.restore();
 
-      // Draw Targets
-      targets.forEach((tgt, idx) => {
-        // Map X, Y (mm) to Canvas coordinates
-        const x_m = tgt.x / 1000.0;
-        const y_m = tgt.y / 1000.0;
-        const dist_m = Math.sqrt(x_m * x_m + y_m * y_m);
+      // 5. Draw Targets (Sharp FMCW Points, Velocity Vectors, & Distance Labels)
+      targets.forEach(tgt => {
+        const x_m = tgt.x_mm / 1000.0;
+        const y_m = tgt.y_mm / 1000.0;
+        const dist_m = tgt.dist_m || Math.sqrt(x_m * x_m + y_m * y_m);
         const radius = (dist_m / maxDistM) * maxRadius;
-        const theta = Math.atan2(x_m, y_m); // angle relative to forward axis
+        const theta = Math.atan2(x_m, y_m); // relative to boresight
 
         const px = originX + Math.sin(theta) * radius;
         const py = originY - Math.cos(theta) * radius;
 
-        // Glowing blip
+        // Target outer glow
         ctx.beginPath();
-        ctx.arc(px, py, 10, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
+        ctx.arc(px, py, 11, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(14, 165, 233, 0.25)';
         ctx.fill();
 
+        // Target solid dot
         ctx.beginPath();
         ctx.arc(px, py, 5, 0, Math.PI * 2);
-        ctx.fillStyle = '#22d3ee';
+        ctx.fillStyle = '#38bdf8';
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // Target label
+        // Label box
         ctx.fillStyle = '#ffffff';
-        ctx.font = '11px monospace';
-        ctx.fillText(`T${tgt.id}: ${dist_m.toFixed(1)}m`, px + 8, py - 6);
+        ctx.font = '11px ui-monospace, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Target #${tgt.id} (${dist_m.toFixed(2)}m)`, px + 9, py - 6);
 
-        // Velocity arrow
-        if (Math.abs(tgt.speed) > 1) {
+        // Velocity Arrow (approaching = green towards origin; receding = amber away)
+        if (tgt.speed_cms && Math.abs(tgt.speed_cms) > 1) {
+          const v_len = Math.max(10, Math.min(45, Math.abs(tgt.speed_cms) * 0.8));
+          const v_angle = theta + (tgt.speed_cms < 0 ? Math.PI : 0);
           ctx.beginPath();
           ctx.moveTo(px, py);
-          const v_len = tgt.speed * 0.8;
-          ctx.lineTo(px, py - v_len);
-          ctx.strokeStyle = tgt.speed > 0 ? '#f43f5e' : '#10b981';
+          ctx.lineTo(px - Math.sin(v_angle) * v_len, py + Math.cos(v_angle) * v_len);
+          ctx.strokeStyle = tgt.speed_cms < 0 ? '#10b981' : '#f59e0b';
           ctx.lineWidth = 2;
           ctx.stroke();
         }
@@ -449,491 +514,228 @@
     }
 
     // =========================================================================
-    // HUD & FAN VISUALIZATION
+    // UI UPDATES FROM TELEMETRY
     // =========================================================================
-    function updateHUDDisplay(level, mode) {
-      const leds = [
-        document.getElementById('led-1'),
-        document.getElementById('led-2'),
-        document.getElementById('led-3'),
-        document.getElementById('led-4'),
-        document.getElementById('led-5'),
-        document.getElementById('led-6'),
-      ];
+    function updateTelemetryUI(data) {
+      // 1. Environment
+      const env = data.env || {};
+      const t = env.temp_c !== undefined ? env.temp_c : (data.temp || 28.4);
+      const rh = env.rh_pct !== undefined ? env.rh_pct : (data.rh || 58.2);
+      const hi = env.heat_index_c !== undefined ? env.heat_index_c : (data.heat_index || 30.2);
+      const dp = env.dew_point_c !== undefined ? env.dew_point_c : 19.4;
 
-      leds.forEach(led => led.classList.remove('on'));
+      document.getElementById('val-temp').innerText = t.toFixed(1);
+      document.getElementById('val-temp-f').innerText = ((t * 9/5) + 32).toFixed(1) + ' °F';
+      document.getElementById('val-rh').innerText = rh.toFixed(1);
+      document.getElementById('val-heat-index').innerText = hi.toFixed(1);
+      document.getElementById('val-dewpoint').innerText = dp.toFixed(1) + '°C';
 
-      if (!fanIsOn || level === 0) {
-        // All off when fan is stopped in mode 1
-        if (mode === 3) leds.forEach(l => l.classList.add('on')); // Night mode full
-        return;
+      // Update Sparklines
+      tempHistory.push(t);
+      if (tempHistory.length > 20) tempHistory.shift();
+      drawSparkline('spark-temp', tempHistory, '#f59e0b');
+
+      rhHistory.push(rh);
+      if (rhHistory.length > 20) rhHistory.shift();
+      drawSparkline('spark-rh', rhHistory, '#0ea5e9');
+
+      // 2. Radar
+      const radar = data.radar || {};
+      const targets = radar.targets || data.targets || [];
+      document.getElementById('target-count-badge').innerText = `${targets.length} Target${targets.length === 1 ? '' : 's'} Active`;
+      drawRadarField(targets);
+      updateTargetTable(targets);
+
+      // 3. Fan
+      const fan = data.fan || {};
+      const counts = fan.counts !== undefined ? fan.counts : currentCounts;
+      const rpm = fan.rpm !== undefined ? fan.rpm : Math.round((counts * 1450) / 511);
+      const power = fan.power !== undefined ? fan.power : (counts > 0);
+      const pct = Math.round((counts * 100) / 511);
+
+      document.getElementById('fan-rpm').innerText = rpm;
+      document.getElementById('fan-pct').innerText = pct;
+      document.getElementById('throttle-fill-bar').style.width = pct + '%';
+      document.getElementById('slider-throttle').value = counts;
+      document.getElementById('slider-count-display').innerText = `${counts} counts (${pct}%)`;
+      document.getElementById('input-counts').value = counts;
+
+      const badge = document.getElementById('fan-state-badge');
+      if (power && counts > 0) {
+        badge.className = "text-xs font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700";
+        badge.innerText = counts >= 500 ? "TURBO RUNNING" : "RUNNING";
+      } else {
+        badge.className = "text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700";
+        badge.innerText = "STOPPED";
       }
 
-      if (mode === 1) {
-        // Level gauge: turn on 1..level LEDs
-        for (let i = 0; i < level && i < 6; i++) {
-          leds[i].classList.add('on');
+      // 4. Packet Inspector
+      if (fan.last_packet) {
+        document.getElementById('disp-packet-hex').innerText = fan.last_packet;
+        const crcVal = fan.last_crc !== undefined ? fan.last_crc : parseInt(fan.last_packet.substr(4, 1), 16);
+        document.getElementById('disp-crc').innerText = `0x${crcVal.toString(16).toUpperCase()} (Valid)`;
+      }
+
+      // Connectivity indicator
+      const isConnected = data.connected || demoModeActive;
+      document.getElementById('status-indicator').className = `w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-rose-500'}`;
+      document.getElementById('conn-pill').className = `text-xs px-2 py-0.5 rounded ${isConnected ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}`;
+      document.getElementById('conn-pill').innerText = isConnected ? 'CONNECTED' : 'STANDBY / OFFLINE';
+    }
+
+    function updateTargetTable(targets) {
+      const container = document.getElementById('target-rows');
+      if (!targets || targets.length === 0) {
+        container.innerHTML = '<div class="py-3 text-slate-500">No targets currently in detection zone</div>';
+        return;
+      }
+      container.innerHTML = targets.map(t => `
+        <div class="py-2.5 px-3 grid grid-cols-5 text-center items-center hover:bg-slate-900/60 transition">
+          <span class="font-bold text-cyan-400">Target #${t.id}</span>
+          <span class="text-white">${(t.dist_m || 0).toFixed(2)} m</span>
+          <span class="text-slate-300">(${t.x_mm || 0}, ${t.y_mm || 0}) mm</span>
+          <span class="${(t.speed_cms || 0) < 0 ? 'text-emerald-400' : 'text-amber-400'}">${t.speed_cms || 0} cm/s</span>
+          <span class="text-slate-400">${t.res_mm || 750} mm</span>
+        </div>
+      `).join('');
+    }
+
+    function drawSparkline(svgId, dataArr, strokeColor) {
+      const svg = document.getElementById(svgId);
+      if (!svg || dataArr.length < 2) return;
+      const min = Math.min(...dataArr) - 0.5;
+      const max = Math.max(...dataArr) + 0.5;
+      const range = max - min || 1;
+      const pts = dataArr.map((v, i) => {
+        const x = (i / (dataArr.length - 1)) * 200;
+        const y = 30 - ((v - min) / range) * 26;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      svg.innerHTML = `<polyline fill="none" stroke="${strokeColor}" stroke-width="2" points="${pts}" stroke-linecap="round"/>`;
+    }
+
+    // =========================================================================
+    // COMMAND DISPATCH
+    // =========================================================================
+    async function sendCommand(cmd, val = "") {
+      try {
+        const res = await fetch('/api/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd, val })
+        });
+        const resp = await res.json();
+        if (resp && resp.fan) {
+          updateTelemetryUI({ fan: resp.fan });
         }
-      } else if (mode === 0) {
-        // Debug mode: LED 1 & 2 on steady
-        leds[0].classList.add('on');
-        leds[1].classList.add('on');
-        leds[3].classList.add('on');
-      } else if (mode === 2) {
-        // Stealth: all off
-      } else if (mode === 3) {
-        // Night full: all on
-        leds.forEach(l => l.classList.add('on'));
-      } else if (mode === 4) {
-        // Triangle: 1, 3, 5
-        leds[0].classList.add('on');
-        leds[2].classList.add('on');
-        leds[4].classList.add('on');
-      } else if (mode === 5) {
-        // Single beacon
-        leds[0].classList.add('on');
+      } catch (err) {
+        console.warn("[CMD SEND ERROR]", err);
       }
     }
 
-    function updateFanSpeed(counts) {
-      currentSpeedCounts = counts;
-      fanIsOn = (counts > 0);
+    function onThrottleSlider(val) {
+      currentCounts = parseInt(val);
+      const pct = Math.round((currentCounts * 100) / 511);
+      document.getElementById('slider-count-display').innerText = `${currentCounts} counts (${pct}%)`;
+      document.getElementById('input-counts').value = currentCounts;
+      document.getElementById('throttle-fill-bar').style.width = pct + '%';
+      sendCommand('speed', currentCounts);
+    }
 
-      // Quantize counts to level 1..6
-      if (counts === 0) currentLevel = 0;
-      else if (counts < 235) currentLevel = 1;
-      else if (counts < 300) currentLevel = 2;
-      else if (counts < 365) currentLevel = 3;
-      else if (counts < 425) currentLevel = 4;
-      else if (counts < 485) currentLevel = 5;
-      else currentLevel = 6;
-
-      const rpm = Math.round((counts * 1450) / 511);
-
-      document.getElementById('disp-rpm').innerText = rpm;
-      document.getElementById('disp-level').innerText = currentLevel;
-      document.getElementById('disp-counts').innerText = `${counts} / 511`;
-      document.getElementById('slider-val').innerText = `${counts} counts`;
-      document.getElementById('speed-slider').value = counts;
-
-      const fanIcon = document.getElementById('fan-blades-icon');
-      const powerBadge = document.getElementById('fan-power-badge');
-
-      if (rpm === 0) {
-        fanIcon.style.animationPlayState = 'paused';
-        powerBadge.innerText = 'STOPPED';
-        powerBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-mono';
-      } else {
-        fanIcon.style.animationPlayState = 'running';
-        const dur = Math.max(0.12, 1.8 - (rpm / 1450) * 1.6);
-        fanIcon.style.animationDuration = `${dur.toFixed(2)}s`;
-        powerBadge.innerText = 'SPINNING';
-        powerBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-mono';
+    function applyDirectCounts() {
+      const val = parseInt(document.getElementById('input-counts').value);
+      if (!isNaN(val)) {
+        onThrottleSlider(Math.max(0, min(511, val)));
       }
+    }
 
-      updateHUDDisplay(currentLevel, currentLightMode);
+    function setLevel(lvl) {
+      sendCommand('level', lvl);
+    }
+
+    function sendAction(action) {
+      sendCommand(action);
+    }
+
+    function setLightMode(mode) {
+      sendCommand('mode', mode);
+    }
+
+    function triggerCarrierBurst(sec) {
+      sendCommand('carrier', sec);
     }
 
     // =========================================================================
-    // IR PACKET BUILDER & ENCODER (MATCHING ICD 0xAF)
+    // DEMO / SIMULATION GENERATOR (WHEN HW IS OFFLINE)
     // =========================================================================
-    function buildPacket(cmd, dataL, dataHLow = 0) {
-      const addr = 0xAF;
-      const crc = (addr ^ cmd ^ dataHLow ^ dataL) & 0x0F;
-      const dataH = (crc << 4) | (dataHLow & 0x0F);
-      const packet = ((addr << 24) | (cmd << 16) | (dataH << 8) | dataL) >>> 0;
-      return { packet, hex: '0x' + packet.toString(16).toUpperCase().padStart(8, '0'), crc };
-    }
+    let simAngle = 0;
+    function generateSimulatedTelemetry() {
+      simAngle += 0.05;
+      const dist = 2.2 + 0.4 * Math.sin(simAngle);
+      const x = Math.round(500 * Math.cos(simAngle));
+      const y = Math.round(dist * 1000);
+      const spd = Math.round(-15 * Math.sin(simAngle));
 
-    function sendCommandToServer(cmd, val = "") {
-      fetch('/api/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmd: cmd, val: val })
-      }).catch(e => console.log("Command send failed:", e));
-    }
-
-    function recordIRTransmission(cmdName, cmdCode, dataL, dataHLow = 0) {
-      const pkt = buildPacket(cmdCode, dataL, dataHLow);
-      document.getElementById('disp-last-packet').innerText = pkt.hex;
-      document.getElementById('disp-cmd-name').innerText = cmdName;
-      document.getElementById('disp-crc').innerText = '0x' + pkt.crc.toString(16).toUpperCase();
-
-      logMessage(`[IR TX -> FAN] ${cmdName} | Packet: ${pkt.hex}`);
-
-      // Forward to backend server over Wi-Fi
-      if (cmdCode === 0x01) {
-        const counts = (dataHLow << 8) | dataL;
-        sendCommandToServer('speed', counts);
-      } else if (cmdCode === 0x02) {
-        sendCommandToServer('level', dataL);
-      } else if (cmdCode === 0x00) {
-        sendCommandToServer('off');
-      } else if (cmdCode === 0x03) {
-        sendCommandToServer('toggle');
-      } else if (cmdCode === 0x04) {
-        sendCommandToServer('mode', dataL);
-      }
-
-      // If connected to Web Serial locally
-      if (serialWriter) {
-        try {
-          if (cmdCode === 0x01) {
-            const counts = (dataHLow << 8) | dataL;
-            serialWriter.write(new TextEncoder().encode(`speed ${counts}\n`));
-          } else if (cmdCode === 0x02) {
-            serialWriter.write(new TextEncoder().encode(`level ${dataL}\n`));
-          } else if (cmdCode === 0x00) {
-            serialWriter.write(new TextEncoder().encode(`off\n`));
-          } else if (cmdCode === 0x03) {
-            serialWriter.write(new TextEncoder().encode(`toggle\n`));
-          } else if (cmdCode === 0x04) {
-            serialWriter.write(new TextEncoder().encode(`mode ${dataL}\n`));
-          }
-        } catch (e) {
-          logMessage(`[SERIAL ERR] Failed to write: ${e}`);
+      return {
+        type: "telemetry",
+        connected: true,
+        env: {
+          temp_c: 28.3 + 0.3 * Math.sin(simAngle * 0.3),
+          rh_pct: 58.0 + 1.2 * Math.cos(simAngle * 0.2),
+          heat_index_c: 30.1,
+          dew_point_c: 19.3
+        },
+        radar: {
+          connected: true,
+          total_frames: 450,
+          targets: [
+            { id: 1, x_mm: x, y_mm: y, dist_m: dist, speed_cms: spd, res_mm: 750 }
+          ]
+        },
+        fan: {
+          power: currentCounts > 0,
+          level: currentLevel,
+          counts: currentCounts,
+          rpm: Math.round((currentCounts * 1450) / 511),
+          mode: currentMode,
+          last_packet: "0xAF02E003",
+          last_crc: 14
         }
-      }
+      };
     }
 
-    function sendLevelCommand(lvl) {
-      if (lvl === 0) {
-        updateFanSpeed(0);
-        recordIRTransmission('CMD_ALL_OFF', 0x00, 0x00);
-      } else {
-        const counts = PRESET_SPEEDS[lvl];
-        updateFanSpeed(counts);
-        recordIRTransmission(`CMD_SET_LEVEL (${lvl})`, 0x02, lvl);
-      }
-    }
-
-    function onSpeedSlider(val) {
-      const counts = parseInt(val);
-      updateFanSpeed(counts);
-      const dataL = counts & 0xFF;
-      const dataHLow = (counts >> 8) & 0x01;
-      recordIRTransmission(`CMD_SET_RAW_SPEED (${counts})`, 0x01, dataL, dataHLow);
-    }
-
-    function sendLightMode(mode) {
-      currentLightMode = parseInt(mode);
-      updateHUDDisplay(currentLevel, currentLightMode);
-      recordIRTransmission(`CMD_SET_LIGHT_MODE (${mode})`, 0x04, currentLightMode);
+    function toggleDemoMode() {
+      demoModeActive = !demoModeActive;
+      document.getElementById('demo-state').innerText = demoModeActive ? "ACTIVE" : "OFF";
+      document.getElementById('demo-state').className = demoModeActive ? "text-emerald-400" : "text-slate-400";
     }
 
     // =========================================================================
-    // ENVIRONMENTAL INTELLIGENCE & TINYML COMPUTATION
+    // TELEMETRY POLLING LOOP (5 Hz / 200ms)
     // =========================================================================
-    function updateEnvironmentalData(tempC, humid) {
-      currentTemp = tempC;
-      currentHumid = humid;
-
-      document.getElementById('val-temp-c').innerText = tempC.toFixed(1);
-      document.getElementById('val-temp-f').innerText = `${((tempC * 9/5) + 32).toFixed(1)} °F`;
-      document.getElementById('val-humidity').innerText = humid.toFixed(1);
-
-      // Progress bars
-      const tempPct = Math.min(100, Math.max(0, ((tempC - 15) / 25) * 100));
-      document.getElementById('bar-temp').style.width = `${tempPct}%`;
-      document.getElementById('bar-humidity').style.width = `${humid}%`;
-
-      // Dew Point: T - ((100 - RH) / 5)
-      const dewPoint = tempC - ((100 - humid) / 5);
-      document.getElementById('val-dewpoint').innerText = `${dewPoint.toFixed(1)}°C`;
-
-      // Heat Index approximation
-      const hi = -8.784 + 1.611 * tempC + 2.338 * (humid/100) + 0.05 * tempC * (humid/100);
-      const heatIndex = Math.max(tempC, hi);
-      document.getElementById('val-heat-index').innerText = heatIndex.toFixed(1);
-
-      // TinyML Formula Execution:
-      // Base RPM = 400 + (HeatIndex - 24) * 90
-      let baseRpm = Math.round(400 + Math.max(0, heatIndex - 24) * 115);
-      baseRpm = Math.min(1250, Math.max(300, baseRpm));
-      document.getElementById('val-base-rpm').innerText = `${baseRpm} RPM`;
-      document.getElementById('calc-base-rpm').innerText = baseRpm;
-
-      // Delta RPM from radar occupant distance:
-      // If target closer than 3.0m, increase RPM to blow breeze
-      let deltaRpm = 0;
-      if (targets.length > 0) {
-        const closestDist = Math.min(...targets.map(t => t.dist));
-        if (closestDist < 1.5) deltaRpm = 250;
-        else if (closestDist < 2.5) deltaRpm = 180;
-        else if (closestDist < 4.0) deltaRpm = 90;
-      }
-
-      document.getElementById('calc-delta-rpm').innerText = `${deltaRpm >= 0 ? '+' : ''}${deltaRpm}`;
-      const finalRpm = Math.min(1450, Math.max(0, baseRpm + deltaRpm));
-      document.getElementById('calc-target-rpm').innerText = finalRpm;
-
-      const targetCounts = Math.round((finalRpm * 511) / 1450);
-      document.getElementById('calc-counts').innerHTML = `${targetCounts} <span class="text-xs text-slate-400">/ 511</span>`;
-
-      // Auto-adjust fan in autonomous demo
-      if (isSimulating && document.getElementById('speed-slider') !== document.activeElement) {
-        updateFanSpeed(targetCounts);
-      }
-    }
-
-    // =========================================================================
-    // SIMULATION LOOP
-    // =========================================================================
-    function toggleSimulation() {
-      isSimulating = !isSimulating;
-      const btnText = document.getElementById('sim-btn-text');
-      const dot = document.getElementById('sim-status-dot');
-
-      if (isSimulating) {
-        btnText.innerText = 'Sim Engine: ACTIVE';
-        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
-        logMessage('[SIM] Simulation Engine Resumed.');
-      } else {
-        btnText.innerText = 'Sim Engine: PAUSED';
-        dot.className = 'w-2 h-2 rounded-full bg-slate-500';
-        logMessage('[SIM] Simulation Engine Paused.');
-      }
-    }
-
-    let simTick = 0;
-    setInterval(() => {
-      if (!isSimulating) return;
-
-      simTick++;
-      // Subtle ambient fluctuations
-      const tempFluct = currentTemp + (Math.sin(simTick * 0.1) * 0.08);
-      const humidFluct = Math.min(95, Math.max(30, currentHumid + (Math.cos(simTick * 0.08) * 0.15)));
-
-      // Simulate human walking trajectory in radar field
-      if (targets.length > 0) {
-        const t = targets[0];
-        t.x += Math.cos(simTick * 0.05) * 15;
-        t.y += Math.sin(simTick * 0.04) * 25;
-        t.y = Math.min(4500, Math.max(1200, t.y));
-        t.x = Math.min(1800, Math.max(-1800, t.x));
-        t.dist = Math.sqrt((t.x/1000)**2 + (t.y/1000)**2);
-        t.speed = Math.round(Math.sin(simTick * 0.04) * 35);
-      }
-
-      updateEnvironmentalData(tempFluct, humidFluct);
-      renderTargetsList();
-    }, 500);
-
-    // =========================================================================
-    // TARGETS UI LIST
-    // =========================================================================
-    function renderTargetsList() {
-      const container = document.getElementById('targets-list');
-      if (targets.length === 0) {
-        container.innerHTML = '<div class="text-xs text-slate-500 text-center py-2">No active occupants in sensing cone</div>';
-        return;
-      }
-
-      let html = '';
-      targets.forEach(t => {
-        const velStr = t.speed < 0 ? `Approaching (${Math.abs(t.speed)} cm/s)` : `Moving away (${t.speed} cm/s)`;
-        const velColor = t.speed < 0 ? 'text-emerald-400' : 'text-amber-400';
-
-        html += `
-          <div class="p-2.5 bg-slate-900/90 border border-slate-800 rounded-xl flex items-center justify-between text-xs font-mono">
-            <div>
-              <div class="text-white font-bold flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-                Target #${t.id}: ${t.dist.toFixed(2)} m
-              </div>
-              <div class="text-[11px] text-slate-400 mt-0.5">X: ${t.x.toFixed(0)}mm &bull; Y: ${t.y.toFixed(0)}mm</div>
-            </div>
-            <div class="text-right">
-              <span class="text-[11px] ${velColor}">${velStr}</span>
-            </div>
-          </div>
-        `;
-      });
-      container.innerHTML = html;
-    }
-
-    // =========================================================================
-    // WEB SERIAL API HARDWARE CONNECTION
-    // =========================================================================
-    async function toggleWebSerial() {
-      if (serialPort) {
-        // Disconnect
-        try {
-          if (serialReader) await serialReader.cancel();
-          await serialPort.close();
-        } catch (e) {}
-        serialPort = null;
-        serialReader = null;
-        serialWriter = null;
-        document.getElementById('serial-btn-text').innerText = 'Connect USB Serial';
-        document.getElementById('btn-web-serial').className = 'px-4 py-2 text-xs font-semibold rounded-lg border border-cyan-600 bg-cyan-950/60 hover:bg-cyan-900 text-cyan-300 transition flex items-center gap-2 cursor-pointer shadow-sm';
-        logMessage('[SERIAL] Disconnected from Raspberry Pi Pico.');
-        return;
-      }
-
-      if (!('serial' in navigator)) {
-        alert('Web Serial is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Opera.');
+    async function pollTelemetry() {
+      if (demoModeActive) {
+        updateTelemetryUI(generateSimulatedTelemetry());
         return;
       }
 
       try {
-        serialPort = await navigator.serial.requestPort();
-        await serialPort.open({ baudRate: 115200 });
-
-        document.getElementById('serial-btn-text').innerText = 'Disconnect Pico';
-        document.getElementById('btn-web-serial').className = 'px-4 py-2 text-xs font-semibold rounded-lg border border-rose-600 bg-rose-950/60 hover:bg-rose-900 text-rose-300 transition flex items-center gap-2 cursor-pointer shadow-sm';
-        logMessage('[SERIAL] Connected to RP2040 at 115,200 baud.');
-
-        serialWriter = serialPort.writable.getWriter();
-        readSerialStream();
-      } catch (err) {
-        logMessage(`[SERIAL ERR] Connection cancelled or failed: ${err}`);
-      }
-    }
-
-    async function readSerialStream() {
-      const decoder = new TextDecoderStream();
-      const inputDone = serialPort.readable.pipeTo(decoder.writable);
-      const inputStream = decoder.readable;
-      serialReader = inputStream.getReader();
-
-      let lineBuffer = '';
-      try {
-        while (true) {
-          const { value, done } = await serialReader.read();
-          if (done) break;
-          if (value) {
-            lineBuffer += value;
-            const lines = lineBuffer.split('\n');
-            lineBuffer = lines.pop(); // keep partial
-
-            lines.forEach(line => {
-              line = line.trim();
-              if (line) parsePicoTelemetry(line);
-            });
-          }
+        const res = await fetch('/api/telemetry', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          updateTelemetryUI(data);
         }
-      } catch (err) {
-        logMessage(`[SERIAL ERR] Read error: ${err}`);
+      } catch (e) {
+        // Fallback to static display if offline
+        document.getElementById('status-indicator').className = "w-3 h-3 rounded-full bg-rose-500";
+        document.getElementById('conn-pill').className = "text-xs px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800";
+        document.getElementById('conn-pill').innerText = "DISCONNECTED";
       }
     }
 
-    function parsePicoTelemetry(line) {
-      logMessage(`[PICO RAW] ${line}`);
-
-      // Parse temperature: "[ENV SENSOR] Temperature: 27.8 °C | Relative Humidity: 58.4 %"
-      if (line.includes('[ENV SENSOR]')) {
-        const tMatch = line.match(/Temperature:\s*([\d\.]+)/);
-        const hMatch = line.match(/Relative Humidity:\s*([\d\.]+)/);
-        if (tMatch && hMatch) {
-          updateEnvironmentalData(parseFloat(tMatch[1]), parseFloat(hMatch[1]));
-        }
-      }
-
-      // Parse radar: "[RADAR] Target #1: Dist=2.32m (X=750mm, Y=2200mm) | Speed=-12 cm/s"
-      if (line.includes('[RADAR]') && line.includes('Dist=')) {
-        const idMatch = line.match(/Target #(\d+):/);
-        const distMatch = line.match(/Dist=([\d\.]+)m/);
-        const xMatch = line.match(/X=(-?\d+)mm/);
-        const yMatch = line.match(/Y=(-?\d+)mm/);
-        const spdMatch = line.match(/Speed=(-?\d+)/);
-
-        if (idMatch && distMatch && xMatch && yMatch) {
-          const id = parseInt(idMatch[1]);
-          const existing = targets.find(t => t.id === id);
-          const tData = {
-            id: id,
-            dist: parseFloat(distMatch[1]),
-            x: parseFloat(xMatch[1]),
-            y: parseFloat(yMatch[1]),
-            speed: spdMatch ? parseInt(spdMatch[1]) : 0
-          };
-          if (existing) {
-            Object.assign(existing, tData);
-          } else {
-            targets.push(tData);
-          }
-          renderTargetsList();
-        }
-      }
-    }
-
-    function logMessage(msg) {
-      const log = document.getElementById('serial-log');
-      const row = document.createElement('div');
-      const timeStr = new Date().toTimeString().split(' ')[0];
-      row.innerText = `[${timeStr}] ${msg}`;
-      log.appendChild(row);
-      log.scrollTop = log.scrollHeight;
-    }
-
-    // =========================================================================
-    // LIVE REST API POLLING (MOBILE & WI-FI CLIENTS)
-    // =========================================================================
-    let hardwareConnected = false;
-
-    function pollLiveTelemetry() {
-      fetch('/api/telemetry')
-        .then(res => res.json())
-        .then(data => {
-          if (!data || !data.connected) {
-            if (hardwareConnected) {
-              hardwareConnected = false;
-              document.getElementById('sim-btn-text').innerText = 'Sim Engine: ACTIVE';
-              document.getElementById('sim-status-dot').className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
-            }
-            return;
-          }
-
-          if (!hardwareConnected) {
-            hardwareConnected = true;
-            isSimulating = false; // Turn off synthetic data once real hardware stream is detected!
-            document.getElementById('sim-btn-text').innerText = 'HARDWARE LIVE';
-            document.getElementById('sim-status-dot').className = 'w-2 h-2 rounded-full bg-cyan-400 animate-pulse';
-            logMessage('[BRIDGE] Live telemetry stream received from Raspberry Pi Pico.');
-          }
-
-          // Real temperature & humidity from HW-220
-          if (data.temp !== undefined && data.rh !== undefined) {
-            updateEnvironmentalData(data.temp, data.rh);
-          }
-
-          // Real radar targets from HLK-LD2450
-          if (data.targets !== undefined) {
-            targets = data.targets;
-            renderTargetsList();
-            const badge = document.getElementById('radar-target-badge');
-            badge.innerText = targets.length === 0 ? 'No Targets' : `${targets.length} Target${targets.length > 1 ? 's' : ''} In Field`;
-          }
-
-          // Fan state from Pico
-          if (data.fan) {
-            if (document.getElementById('speed-slider') !== document.activeElement) {
-              updateFanSpeed(data.fan.counts);
-            }
-            if (data.fan.last_pkt) {
-              document.getElementById('disp-last-packet').innerText = data.fan.last_pkt;
-            }
-          }
-        })
-        .catch(() => {});
-    }
-
-    // =========================================================================
-    // ANIMATION & INITIALIZATION
-    // =========================================================================
-    function animationLoop() {
-      drawRadar();
-      requestAnimationFrame(animationLoop);
-    }
-
-    window.onload = () => {
-      updateFanSpeed(330);
-      renderTargetsList();
-      animationLoop();
-      logMessage('[DASHBOARD] Ready. Radar, Environmental & Actuation loops running.');
-      setInterval(pollLiveTelemetry, 350);
-    };
+    // Initial render & start polling
+    drawRadarField([]);
+    pollInterval = setInterval(pollTelemetry, 200);
   </script>
 </body>
 </html>
