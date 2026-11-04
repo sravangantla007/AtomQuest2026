@@ -20,7 +20,8 @@
     - Pico GND  (Pin 33) -> HW-220 GND
 
  3. Infrared Transmitter (38 kHz Hardware PWM):
-    - Pico GP16 (Pin 21) -> IR LED Driver Base / HW-220 IR TX Signal
+    - Pico GP16 (Pin 21) -> IR LED Anode (Long leg) or Driver Base
+    - Pico GND  (Pin 23 or 38) -> IR LED Cathode (Short leg / flat side)
     - Compliant with NODEVAYU_IR_INTERFACE_SPEC.md (Address: 0xAF, NEC timing)
 
  4. Onboard Activity LED:
@@ -41,7 +42,7 @@ PIN_RADAR_TX   = 28   # Pico UART0 TX -> LD2450 RX
 PIN_RADAR_RX   = 29   # Pico UART0 RX <- LD2450 TX
 PIN_I2C_SDA    = 26   # Pico I2C1 SDA -> HW-220 SDA
 PIN_I2C_SCL    = 27   # Pico I2C1 SCL -> HW-220 SCL
-PIN_IR_TX      = 16   # Pico PWM -> 38 kHz IR LED
+PIN_IR_TX      = 16   # Pico PWM -> 38 kHz IR LED (Physical Pin 21)
 
 # Onboard LED detection
 try:
@@ -53,7 +54,7 @@ except Exception:
         led = None
 
 
-def blink_led(times=1, delay_ms=80):
+def blink_led(times=1, delay_ms=50):
     if not led:
         return
     for _ in range(times):
@@ -95,15 +96,6 @@ class HW220_HTU21D:
         except Exception:
             pass
 
-    def _check_crc(self, value_16: int, crc: int) -> bool:
-        """CRC-8 verification (Polynomial: x^8 + x^5 + x^4 + 1 = 0x131)."""
-        remainder = (value_16 << 8) | crc
-        divsor = 0x988000
-        for _ in range(16):
-            if remainder & (1 << (23 - _)):
-                remainder ^= (divsor >> _)
-        return remainder == 0
-
     def read_temperature(self) -> float:
         """Read temperature in Celsius."""
         self.i2c.writeto(self.I2C_ADDR, bytes([self.CMD_TRIGGER_TEMP_NOHOLD]))
@@ -139,14 +131,6 @@ class HW220_HTU21D:
 # 2. HLK-LD2450 24GHz mmWAVE MULTI-TARGET TRACKING RADAR DRIVER
 # =============================================================================
 class LD2450Radar:
-    """
-    HLK-LD2450 Target Tracking Data Frame (30 bytes total, 10 Hz stream):
-      Header (4B): 0xAA 0xFF 0x03 0x00
-      Target 1 (8B): X(int16), Y(int16), Speed(int16), Dist_Resolution(uint16)
-      Target 2 (8B): X(int16), Y(int16), Speed(int16), Dist_Resolution(uint16)
-      Target 3 (8B): X(int16), Y(int16), Speed(int16), Dist_Resolution(uint16)
-      Tail (2B):   0x55 0xCC
-    """
     FRAME_HEADER = b'\xAA\xFF\x03\x00'
     FRAME_TAIL   = b'\x55\xCC'
     FRAME_LEN    = 30
@@ -165,11 +149,7 @@ class LD2450Radar:
         return val
 
     def update(self):
-        """
-        Poll UART buffer and extract the latest valid radar tracking frame.
-        Returns a list of active targets: [{'id': 1..3, 'x': mm, 'y': mm, 'speed': cm/s, 'dist': m}, ...]
-        or None if no new complete frame is ready.
-        """
+        """Poll UART buffer and extract latest tracking frame."""
         if self.uart.any():
             incoming = self.uart.read()
             if incoming:
@@ -183,33 +163,26 @@ class LD2450Radar:
         latest_targets = None
 
         while True:
-            # Look for 4-byte header
             idx = self.buffer.find(self.FRAME_HEADER)
             if idx == -1:
-                # Keep last 3 bytes in case header was split across UART reads
                 if len(self.buffer) > 3:
                     self.buffer = self.buffer[-3:]
                 break
 
-            # Check if full frame (30 bytes) is present
             if len(self.buffer) < idx + self.FRAME_LEN:
-                # Incomplete frame, wait for more bytes
                 if idx > 0:
                     self.buffer = self.buffer[idx:]
                 break
 
             frame = self.buffer[idx : idx + self.FRAME_LEN]
-            # Advance buffer past this frame
             self.buffer = self.buffer[idx + self.FRAME_LEN :]
 
-            # Validate frame tail
             if frame[28:30] != self.FRAME_TAIL:
                 continue
 
             self.total_frames_received += 1
             targets = []
 
-            # Parse up to 3 tracked targets
             for t_idx in range(3):
                 offset = 4 + (t_idx * 8)
                 x = self._decode_signed_16(frame[offset], frame[offset + 1])
@@ -217,7 +190,6 @@ class LD2450Radar:
                 spd = self._decode_signed_16(frame[offset + 4], frame[offset + 5])
                 res = frame[offset + 6] | (frame[offset + 7] << 8)
 
-                # A target is valid if distance is non-zero
                 if x != 0 or y != 0:
                     dist_mm = math.sqrt(x * x + y * y)
                     targets.append({
@@ -257,12 +229,14 @@ class NodeVayuIRTransmitter:
         self.pwm = PWM(Pin(tx_pin))
         self.pwm.freq(38000)
         self.pwm.duty_u16(0)
-        self.DUTY_33 = int(65535 * 0.33)  # 33.3% duty cycle for 38kHz IR
+        # 50% duty (32768) maximizes optical power and range
+        self.DUTY_50 = 32768
+        self.DUTY_33 = 21845
 
-    def _carrier_on(self):
-        self.pwm.duty_u16(self.DUTY_33)
+    def carrier_on(self, duty: int = None):
+        self.pwm.duty_u16(duty if duty is not None else self.DUTY_50)
 
-    def _carrier_off(self):
+    def carrier_off(self):
         self.pwm.duty_u16(0)
 
     def encode_packet(self, cmd: int, data_l: int, data_h_low: int = 0) -> int:
@@ -274,37 +248,49 @@ class NodeVayuIRTransmitter:
                 (data_h << 8) |
                 (data_l & 0xFF))
 
-    def transmit_packet(self, packet: int):
-        """Transmits 32 bits with 9ms/4.5ms leader and 560us stop bit."""
-        # 1. Leader Code
-        self._carrier_on()
+    @micropython.native
+    def _send_raw_bits(self, packet: int, duty: int):
+        """Native RP2040 machine code generation to ensure exact microsecond bit timings."""
+        # 1. Leader (9000us carrier, 4500us space)
+        self.pwm.duty_u16(duty)
         time.sleep_us(9000)
-        self._carrier_off()
+        self.pwm.duty_u16(0)
         time.sleep_us(4500)
 
-        # 2. 32 Data Bits (MSB first)
+        # 2. 32 Data bits (MSB first)
         for bit in range(31, -1, -1):
-            self._carrier_on()
+            self.pwm.duty_u16(duty)
             time.sleep_us(560)
-            self._carrier_off()
+            self.pwm.duty_u16(0)
             if (packet >> bit) & 0x01:
-                time.sleep_us(1690)  # Bit 1 space
+                time.sleep_us(1690)  # Bit 1
             else:
-                time.sleep_us(560)   # Bit 0 space
+                time.sleep_us(560)   # Bit 0
 
-        # 3. Stop Bit
-        self._carrier_on()
+        # 3. Stop bit
+        self.pwm.duty_u16(duty)
         time.sleep_us(560)
-        self._carrier_off()
+        self.pwm.duty_u16(0)
 
-        # 4. Mandatory Inter-Frame Cooldown
-        time.sleep_ms(40)
+    def transmit_packet(self, packet: int, repeats: int = 2):
+        """Transmits packet with duplicate frames (standard for reliable IR range)."""
+        if led:
+            led.value(1)
+        for r in range(repeats):
+            self._send_raw_bits(packet, self.DUTY_50)
+            time.sleep_ms(40)  # Mandatory inter-frame cooldown
+        if led:
+            led.value(0)
 
-    def burst_carrier_test(self, duration_ms: int = 150):
-        """Generates continuous 38 kHz carrier burst (useful for testing with phone camera)."""
-        self._carrier_on()
+    def burst_carrier_test(self, duration_ms: int = 300):
+        """Generates continuous 38 kHz carrier burst for phone camera verification."""
+        if led:
+            led.value(1)
+        self.carrier_on(self.DUTY_50)
         time.sleep_ms(duration_ms)
-        self._carrier_off()
+        self.carrier_off()
+        if led:
+            led.value(0)
 
     def send_power_on(self):
         pkt = self.encode_packet(self.CMD_POWER_ON, 0x00)
@@ -374,12 +360,10 @@ def init_hardware():
     try:
         uart0 = UART(0, baudrate=256000, tx=Pin(PIN_RADAR_TX), rx=Pin(PIN_RADAR_RX), rxbuf=1024)
     except TypeError:
-        # Fallback if rxbuf argument is unsupported in older MicroPython builds
         uart0 = UART(0, baudrate=256000, tx=Pin(PIN_RADAR_TX), rx=Pin(PIN_RADAR_RX))
 
     radar = LD2450Radar(uart0)
 
-    # Listen for 1.5 seconds to see if radar stream is active
     print("      Listening for incoming radar telemetry stream (1.5s window)...")
     start_t = time.ticks_ms()
     received_any = False
@@ -405,9 +389,15 @@ def init_hardware():
     # 3. Initialize IR Transmitter PWM on GP16
     print(f"\n[3/3] Initializing 38 kHz Hardware PWM IR Transmitter on GP{PIN_IR_TX} (Pico Pin 21)...")
     ir = NodeVayuIRTransmitter(PIN_IR_TX)
-    print("      [PASS] 38.0 kHz carrier PWM initialized with 33% duty cycle.")
-    print("      Emitting short 100ms camera test burst on GP16...")
-    ir.burst_carrier_test(100)
+    print("      [PASS] 38.0 kHz carrier PWM initialized (50% Duty Boost).")
+    print("      Emitting visible 300ms 38 kHz test burst (Check via phone camera)...")
+    ir.burst_carrier_test(300)
+
+    # Immediately transmit Power ON + Level 1 to test fan responsiveness
+    print("      Sending initial test packet: [POWER ON] + [LEVEL 1]...")
+    ir.send_power_on()
+    time.sleep_ms(100)
+    ir.send_level(1)
 
     blink_led(3, 60)
     print("\n" + "="*68)
@@ -425,7 +415,8 @@ def print_help():
     print("  [0]       : Transmit Fan ALL OFF command (0xAF00F000)")
     print("  [p]       : Transmit Toggle Power command (0xAF03C000)")
     print("  [o]       : Transmit Explicit Power ON command (0xAF078000)")
-    print("  [b]       : Emit 150ms 38 kHz carrier burst (Phone camera check)")
+    print("  [a]       : Toggle AUTO-TRANSMIT mode (cycles fan levels automatically)")
+    print("  [b]       : Emit 500ms 38 kHz carrier burst (Phone camera check)")
     print("  [s]       : Run single-shot sensor read (HW-220 T/RH)")
     print("  [h] / [?] : Show this help menu")
     print("  [q]       : Exit verification script\n")
@@ -435,16 +426,18 @@ def main():
     sensor, radar, ir = init_hardware()
     print_help()
 
-    # Setup non-blocking terminal input
     poller = select.poll()
     poller.register(sys.stdin, select.POLLIN)
 
     last_sensor_read = time.ticks_ms()
     last_radar_print = time.ticks_ms()
+    last_auto_tx     = time.ticks_ms()
+    auto_cycle_level = 1
+    auto_tx_enabled  = False
+
     current_temp = None
     current_rh = None
 
-    # Initial sensor read
     if sensor.connected:
         current_temp, current_rh = sensor.read_both()
 
@@ -470,8 +463,16 @@ def main():
                     current_temp, current_rh = t, h
                     print(f"[ENV SENSOR] Temperature: {current_temp:.1f} °C  |  Relative Humidity: {current_rh:.1f} %")
             elif sensor.probe():
-                # Auto-recovery if sensor was plugged in dynamically
                 print("[ENV SENSOR] HW-220 dynamically detected on I2C bus!")
+
+        # Auto-transmit cycle if enabled
+        if auto_tx_enabled and time.ticks_diff(now, last_auto_tx) >= 3500:
+            last_auto_tx = now
+            pkt = ir.send_level(auto_cycle_level)
+            print(f"[AUTO TX] Sent LEVEL {auto_cycle_level} -> 0x{pkt:08X}")
+            auto_cycle_level += 1
+            if auto_cycle_level > 6:
+                auto_cycle_level = 1
 
         # Check for serial user command
         if poller.poll(0):
@@ -483,27 +484,27 @@ def main():
                 lvl = int(ch)
                 pkt = ir.send_level(lvl)
                 print(f"[IR TX -> FAN] Sent LEVEL {lvl} (Packet: 0x{pkt:08X})")
-                blink_led(1, 40)
 
             elif ch == '0':
                 pkt = ir.send_all_off()
                 print(f"[IR TX -> FAN] Sent FAN ALL OFF (Packet: 0x{pkt:08X})")
-                blink_led(1, 40)
 
             elif ch in ('p', 'P'):
                 pkt = ir.send_toggle_power()
                 print(f"[IR TX -> FAN] Sent TOGGLE POWER (Packet: 0x{pkt:08X})")
-                blink_led(1, 40)
 
             elif ch in ('o', 'O'):
                 pkt = ir.send_power_on()
                 print(f"[IR TX -> FAN] Sent POWER ON (Packet: 0x{pkt:08X})")
-                blink_led(1, 40)
+
+            elif ch in ('a', 'A'):
+                auto_tx_enabled = not auto_tx_enabled
+                status_str = "ENABLED (Cycling Levels 1-6 every 3.5s)" if auto_tx_enabled else "DISABLED"
+                print(f"[IR TX] AUTO-TRANSMIT Mode: {status_str}")
 
             elif ch in ('b', 'B'):
-                print("[IR TX] Emitting 150ms 38 kHz burst carrier on GP16 (look at LED via phone camera)...")
-                ir.burst_carrier_test(150)
-                blink_led(2, 50)
+                print("[IR TX] Emitting 500ms 38 kHz burst on GP16 (look at LED via phone camera)...")
+                ir.burst_carrier_test(500)
 
             elif ch in ('s', 'S'):
                 if sensor.connected:

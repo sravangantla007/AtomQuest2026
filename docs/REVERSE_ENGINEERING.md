@@ -159,3 +159,4 @@ To revert to the stock factory firmware at any time:
 ```bash
 stm8flash -c stlinkv2 -p stm8s003f3 -w binaries/factory_dumps/fan_firmware_original.bin
 ```
+
