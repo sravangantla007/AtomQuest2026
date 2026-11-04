@@ -545,6 +545,14 @@
       return { packet, hex: '0x' + packet.toString(16).toUpperCase().padStart(8, '0'), crc };
     }
 
+    function sendCommandToServer(cmd, val = "") {
+      fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd: cmd, val: val })
+      }).catch(e => console.log("Command send failed:", e));
+    }
+
     function recordIRTransmission(cmdName, cmdCode, dataL, dataHLow = 0) {
       const pkt = buildPacket(cmdCode, dataL, dataHLow);
       document.getElementById('disp-last-packet').innerText = pkt.hex;
@@ -553,7 +561,21 @@
 
       logMessage(`[IR TX -> FAN] ${cmdName} | Packet: ${pkt.hex}`);
 
-      // If connected to Web Serial, transmit command down to Pico
+      // Forward to backend server over Wi-Fi
+      if (cmdCode === 0x01) {
+        const counts = (dataHLow << 8) | dataL;
+        sendCommandToServer('speed', counts);
+      } else if (cmdCode === 0x02) {
+        sendCommandToServer('level', dataL);
+      } else if (cmdCode === 0x00) {
+        sendCommandToServer('off');
+      } else if (cmdCode === 0x03) {
+        sendCommandToServer('toggle');
+      } else if (cmdCode === 0x04) {
+        sendCommandToServer('mode', dataL);
+      }
+
+      // If connected to Web Serial locally
       if (serialWriter) {
         try {
           if (cmdCode === 0x01) {
@@ -846,6 +868,58 @@
     }
 
     // =========================================================================
+    // LIVE REST API POLLING (MOBILE & WI-FI CLIENTS)
+    // =========================================================================
+    let hardwareConnected = false;
+
+    function pollLiveTelemetry() {
+      fetch('/api/telemetry')
+        .then(res => res.json())
+        .then(data => {
+          if (!data || !data.connected) {
+            if (hardwareConnected) {
+              hardwareConnected = false;
+              document.getElementById('sim-btn-text').innerText = 'Sim Engine: ACTIVE';
+              document.getElementById('sim-status-dot').className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+            }
+            return;
+          }
+
+          if (!hardwareConnected) {
+            hardwareConnected = true;
+            isSimulating = false; // Turn off synthetic data once real hardware stream is detected!
+            document.getElementById('sim-btn-text').innerText = 'HARDWARE LIVE';
+            document.getElementById('sim-status-dot').className = 'w-2 h-2 rounded-full bg-cyan-400 animate-pulse';
+            logMessage('[BRIDGE] Live telemetry stream received from Raspberry Pi Pico.');
+          }
+
+          // Real temperature & humidity from HW-220
+          if (data.temp !== undefined && data.rh !== undefined) {
+            updateEnvironmentalData(data.temp, data.rh);
+          }
+
+          // Real radar targets from HLK-LD2450
+          if (data.targets !== undefined) {
+            targets = data.targets;
+            renderTargetsList();
+            const badge = document.getElementById('radar-target-badge');
+            badge.innerText = targets.length === 0 ? 'No Targets' : `${targets.length} Target${targets.length > 1 ? 's' : ''} In Field`;
+          }
+
+          // Fan state from Pico
+          if (data.fan) {
+            if (document.getElementById('speed-slider') !== document.activeElement) {
+              updateFanSpeed(data.fan.counts);
+            }
+            if (data.fan.last_pkt) {
+              document.getElementById('disp-last-packet').innerText = data.fan.last_pkt;
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
+    // =========================================================================
     // ANIMATION & INITIALIZATION
     // =========================================================================
     function animationLoop() {
@@ -858,6 +932,7 @@
       renderTargetsList();
       animationLoop();
       logMessage('[DASHBOARD] Ready. Radar, Environmental & Actuation loops running.');
+      setInterval(pollLiveTelemetry, 350);
     };
   </script>
 </body>
