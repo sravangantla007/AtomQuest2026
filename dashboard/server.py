@@ -1,9 +1,14 @@
 """
 ===============================================================================
  NodeVAYU Web Bridge Server
- Serves the clean modern web dashboard on 0.0.0.0:3000 and bridges COM11 to HTTP.
+ Serves the clean modern web dashboard on 0.0.0.0:3000.
  Compliant with NODEVAYU_UART_PROTOCOL_SPEC.md.
- Accessible on local Wi-Fi from mobile phones or any desktop browser.
+ 
+ Serial Policy:
+  - ZERO automatic port polling or grabbing.
+  - The serial port (COM11) is ONLY opened when explicitly requested by the user
+    via the 'Connect Serial' button in the dashboard UI.
+  - Can be disconnected at any time to immediately release COM11 for Thonny.
 ===============================================================================
 """
 
@@ -15,7 +20,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 
 PORT = 3000
-SERIAL_PORT = 'COM11'
+DEFAULT_SERIAL_PORT = 'COM11'
 SERIAL_BAUD = 115200
 
 # Canonical telemetry state
@@ -30,20 +35,24 @@ latest_telemetry = {
         "dew_point_c": 19.4
     },
     "radar": {
-        "connected": True,
+        "connected": False,
         "total_frames": 0,
         "targets": []
     },
     "fan": {
-        "power": True,
-        "level": 3,
-        "counts": 330,
-        "rpm": 1050,
+        "power": False,
+        "level": 0,
+        "counts": 0,
+        "rpm": 0,
         "mode": 1,
-        "last_packet": "0xAF02E003",
-        "last_crc": 14
+        "last_packet": "0xAF00F000",
+        "last_crc": 15
     },
-    "connected": False,
+    "serial_status": {
+        "connected": False,
+        "port": DEFAULT_SERIAL_PORT,
+        "baud": SERIAL_BAUD
+    },
     "last_update": 0
 }
 
@@ -60,6 +69,8 @@ LEVEL_MAP = {
 
 ser_lock = threading.Lock()
 ser_handle = None
+ser_thread = None
+ser_should_run = False
 
 
 def compute_ir_packet(cmd: int, data_l: int, data_h_low: int = 0) -> tuple:
@@ -71,70 +82,116 @@ def compute_ir_packet(cmd: int, data_l: int, data_h_low: int = 0) -> tuple:
     return f"0x{pkt:08X}", crc
 
 
-def serial_worker():
-    global latest_telemetry, ser_handle
-    print(f"[SERIAL] Starting background UART bridge worker on {SERIAL_PORT} @ {SERIAL_BAUD}...")
+# =============================================================================
+# EXPLICIT SERIAL CONNECTION MANAGEMENT (NO AUTO-GRAB)
+# =============================================================================
+def serial_reader_loop():
+    global latest_telemetry, ser_handle, ser_should_run
+    print(f"[SERIAL] Reader thread started for {DEFAULT_SERIAL_PORT}.")
 
-    while True:
+    while ser_should_run:
         try:
+            line = ""
             with ser_lock:
-                ser_handle = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=1.0)
-                ser_handle.reset_input_buffer()
-            print(f"[SERIAL] Connected to {SERIAL_PORT} successfully!")
-            latest_telemetry["connected"] = True
-
-            while True:
-                line = ser_handle.readline().decode('utf-8', errors='ignore').strip()
-                if line and line.startswith('{') and line.endswith('}'):
-                    try:
-                        data = json.loads(line)
-                        if data.get("type") == "telemetry":
-                            latest_telemetry["connected"] = True
-                            latest_telemetry["last_update"] = time.time()
+                if ser_handle and ser_handle.is_open:
+                    if ser_handle.in_waiting:
+                        line = ser_handle.readline().decode('utf-8', errors='ignore').strip()
+            
+            if line and line.startswith('{') and line.endswith('}'):
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "telemetry":
+                        latest_telemetry["last_update"] = time.time()
+                        
+                        # Handle nested schema
+                        if "env" in data:
+                            latest_telemetry["env"].update(data["env"])
+                        if "radar" in data:
+                            latest_telemetry["radar"].update(data["radar"])
+                        if "fan" in data:
+                            latest_telemetry["fan"].update(data["fan"])
                             
-                            # Handle nested schema
-                            if "env" in data:
-                                latest_telemetry["env"].update(data["env"])
-                            if "radar" in data:
-                                latest_telemetry["radar"].update(data["radar"])
-                            if "fan" in data:
-                                latest_telemetry["fan"].update(data["fan"])
-                                
-                            # Handle flat fallback schema
-                            if "temp" in data:
-                                latest_telemetry["env"]["temp_c"] = data["temp"]
-                            if "rh" in data:
-                                latest_telemetry["env"]["rh_pct"] = data["rh"]
-                            if "heat_index" in data:
-                                latest_telemetry["env"]["heat_index_c"] = data["heat_index"]
-                            if "targets" in data:
-                                latest_telemetry["radar"]["targets"] = data["targets"]
-                                
-                    except Exception:
-                        pass
-                time.sleep(0.01)
-
+                        # Handle flat fallback schema
+                        if "temp" in data:
+                            latest_telemetry["env"]["temp_c"] = data["temp"]
+                        if "rh" in data:
+                            latest_telemetry["env"]["rh_pct"] = data["rh"]
+                        if "heat_index" in data:
+                            latest_telemetry["env"]["heat_index_c"] = data["heat_index"]
+                        if "targets" in data:
+                            latest_telemetry["radar"]["targets"] = data["targets"]
+                except Exception:
+                    pass
+                    
+            time.sleep(0.02)
         except Exception as e:
-            latest_telemetry["connected"] = False
-            time.sleep(2.0)
+            print(f"[SERIAL] Read error ({e}). Closing port.")
+            break
+
+    # Clean teardown
+    disconnect_serial()
 
 
-def send_pico_command(cmd_str: str) -> bool:
+def connect_serial(port_name: str = DEFAULT_SERIAL_PORT) -> tuple:
+    """Explicitly connects to the serial port. Returns (success: bool, message: str)."""
+    global ser_handle, ser_thread, ser_should_run, latest_telemetry
+
+    with ser_lock:
+        if ser_handle and ser_handle.is_open:
+            return True, f"Already connected to {ser_handle.port}"
+
+        try:
+            ser_handle = serial.Serial(port_name, SERIAL_BAUD, timeout=1.0)
+            ser_handle.reset_input_buffer()
+            ser_should_run = True
+            latest_telemetry["serial_status"]["connected"] = True
+            latest_telemetry["serial_status"]["port"] = port_name
+            print(f"[SERIAL] Successfully opened {port_name} @ {SERIAL_BAUD} upon user request.")
+
+            ser_thread = threading.Thread(target=serial_reader_loop, daemon=True)
+            ser_thread.start()
+            return True, f"Connected to {port_name}"
+        except Exception as e:
+            latest_telemetry["serial_status"]["connected"] = False
+            err_msg = f"Failed to open {port_name}: {e}"
+            print(f"[SERIAL] {err_msg}")
+            return False, err_msg
+
+
+def disconnect_serial() -> tuple:
+    """Explicitly disconnects and releases the serial port. Returns (success: bool, message: str)."""
+    global ser_handle, ser_should_run, latest_telemetry
+
+    ser_should_run = False
+    with ser_lock:
+        if ser_handle:
+            try:
+                ser_handle.close()
+            except Exception:
+                pass
+            ser_handle = None
+            
+        latest_telemetry["serial_status"]["connected"] = False
+        print("[SERIAL] Disconnected. Port released for Thonny / external tools.")
+        return True, "Serial port disconnected and released."
+
+
+def send_pico_command(cmd_str: str) -> tuple:
+    """Sends command line if serial is connected."""
     global ser_handle
     with ser_lock:
         if ser_handle and ser_handle.is_open:
             try:
                 ser_handle.write((cmd_str.strip() + "\n").encode('utf-8'))
                 print(f"[SERIAL TX -> PICO] {cmd_str}")
-                return True
+                return True, "Delivered to Pico"
             except Exception as e:
-                print(f"[SERIAL ERR] Write failed: {e}")
-                return False
-    return False
+                return False, f"Write error: {e}"
+    return False, "Serial port not connected"
 
 
 def update_local_fan_state(cmd: str, val_str: str):
-    """Updates internal fan state to provide immediate UI feedback even if offline."""
+    """Updates internal fan state to provide immediate UI feedback."""
     fan = latest_telemetry["fan"]
     c = cmd.lower().strip()
     
@@ -144,7 +201,6 @@ def update_local_fan_state(cmd: str, val_str: str):
             fan["counts"] = counts
             fan["power"] = (counts > 0)
             fan["rpm"] = round((counts * 1450) / 511)
-            # Map counts to approximate level
             if counts == 0:
                 fan["level"] = 0
             elif counts < 235:
@@ -240,6 +296,9 @@ def update_local_fan_state(cmd: str, val_str: str):
             pass
 
 
+# =============================================================================
+# HTTP REQUEST HANDLER
+# =============================================================================
 class DashboardHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         dash_dir = os.path.dirname(os.path.abspath(__file__))
@@ -254,20 +313,62 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             latest_telemetry["ts"] = int(time.time())
             self.wfile.write(json.dumps(latest_telemetry).encode('utf-8'))
+
+        elif self.path == '/api/serial/status':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(latest_telemetry["serial_status"]).encode('utf-8'))
+
         else:
             super().do_GET()
 
     def do_POST(self):
-        if self.path == '/api/command':
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length).decode('utf-8')
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length).decode('utf-8') if content_length > 0 else "{}"
+
+        # 1. Connect Serial Endpoint
+        if self.path == '/api/serial/connect':
+            try:
+                data = json.loads(body) if body else {}
+                target_port = data.get("port", DEFAULT_SERIAL_PORT)
+            except Exception:
+                target_port = DEFAULT_SERIAL_PORT
+
+            ok, msg = connect_serial(target_port)
+            self.send_response(200 if ok else 409)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "connected" if ok else "error",
+                "message": msg,
+                "serial_status": latest_telemetry["serial_status"]
+            }).encode('utf-8'))
+
+        # 2. Disconnect Serial Endpoint
+        elif self.path == '/api/serial/disconnect':
+            ok, msg = disconnect_serial()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "disconnected",
+                "message": msg,
+                "serial_status": latest_telemetry["serial_status"]
+            }).encode('utf-8'))
+
+        # 3. Fan Command Endpoint
+        elif self.path == '/api/command':
             try:
                 data = json.loads(body)
                 cmd = str(data.get("cmd", "")).strip()
                 val = str(data.get("val", "")).strip()
 
                 pico_cmd = f"{cmd} {val}".strip()
-                success = send_pico_command(pico_cmd)
+                success, note = send_pico_command(pico_cmd)
                 update_local_fan_state(cmd, val)
 
                 self.send_response(200)
@@ -278,6 +379,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     "status": "ok",
                     "sent": pico_cmd,
                     "serial_delivered": success,
+                    "serial_note": note,
                     "fan": latest_telemetry["fan"]
                 }
                 self.wfile.write(json.dumps(resp).encode('utf-8'))
@@ -285,6 +387,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -302,15 +405,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
 
 def run_server():
-    t = threading.Thread(target=serial_worker, daemon=True)
-    t.start()
-
     server = HTTPServer(('0.0.0.0', PORT), DashboardHandler)
-    print("=" * 64)
-    print("  NodeVAYU Web Bridge Server Active")
+    print("=" * 68)
+    print("  NodeVAYU Dashboard Web Server Active")
     print(f"  Access from Phone (Wi-Fi): http://10.30.36.5:{PORT}")
     print(f"  Access from Local PC   : http://localhost:{PORT}")
-    print("=" * 64)
+    print("  Serial Policy: IDLE / DISCONNECTED (COM11 is 100% free for Thonny)")
+    print("  Connect serial only when explicitly requested via the UI.")
+    print("=" * 68)
     server.serve_forever()
 
 

@@ -75,12 +75,16 @@
         </div>
       </div>
 
-      <!-- CONNECTION STATUS & SIM TOGGLE -->
-      <div class="flex items-center gap-2 text-xs">
-        <button id="btn-toggle-demo" onclick="toggleDemoMode()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer font-medium">
-          Demo Stream: <strong id="demo-state" class="text-emerald-400">OFF</strong>
+      <!-- CONNECTION STATUS & EXPLICIT SERIAL CONTROL (USER CONTROLLED) -->
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <button id="btn-toggle-serial" onclick="toggleSerialConnection()" class="px-3.5 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-2 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700">
+          <span id="serial-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="serial-btn-label">Connect USB Serial (COM11)</span>
         </button>
-        <span class="text-slate-500 font-mono" id="stream-rate">5 Hz Stream</span>
+
+        <button id="btn-toggle-demo" onclick="toggleDemoMode()" class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer font-medium">
+          Demo Stream: <strong id="demo-state" class="text-slate-400">OFF</strong>
+        </button>
       </div>
     </header>
 
@@ -663,6 +667,69 @@
     }
 
     // =========================================================================
+    // EXPLICIT SERIAL PORT MANAGEMENT (USER CONTROLLED ONLY - NEVER AUTO-GRAB)
+    // =========================================================================
+    let serialIsConnected = false;
+
+    async function checkSerialStatus() {
+      try {
+        const res = await fetch('/api/serial/status');
+        if (res.ok) {
+          const data = await res.json();
+          serialIsConnected = !!data.connected;
+          updateSerialButtonUI();
+        }
+      } catch (e) {}
+    }
+
+    async function toggleSerialConnection() {
+      const label = document.getElementById('serial-btn-label');
+      label.innerText = serialIsConnected ? "Disconnecting..." : "Connecting...";
+
+      try {
+        const endpoint = serialIsConnected ? '/api/serial/disconnect' : '/api/serial/connect';
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+
+        if (data.status === "connected") {
+          serialIsConnected = true;
+        } else if (data.status === "disconnected") {
+          serialIsConnected = false;
+        } else if (data.status === "error") {
+          alert("Could not open COM11:\n" + data.message + "\n\nIf Thonny is currently open, disconnect or close Thonny to release COM11.");
+          serialIsConnected = false;
+        }
+      } catch (err) {
+        alert("Error communicating with server: " + err);
+      }
+      updateSerialButtonUI();
+    }
+
+    function updateSerialButtonUI() {
+      const btn = document.getElementById('btn-toggle-serial');
+      const dot = document.getElementById('serial-dot');
+      const label = document.getElementById('serial-btn-label');
+      const connPill = document.getElementById('conn-pill');
+      const statusInd = document.getElementById('status-indicator');
+
+      if (serialIsConnected) {
+        btn.className = "px-3.5 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-2 border border-emerald-700 bg-emerald-950/70 text-emerald-200 hover:bg-emerald-900";
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400";
+        label.innerText = "Disconnect COM11";
+        connPill.className = "text-xs px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800";
+        connPill.innerText = "SERIAL LIVE (COM11)";
+        statusInd.className = "w-3 h-3 rounded-full bg-emerald-400";
+      } else {
+        btn.className = "px-3.5 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-2 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700";
+        dot.className = "w-2 h-2 rounded-full bg-slate-500";
+        label.innerText = "Connect USB Serial (COM11)";
+        connPill.className = "text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700";
+        connPill.innerText = demoModeActive ? "DEMO ACTIVE" : "SERIAL IDLE (THONNY FREE)";
+        statusInd.className = `w-3 h-3 rounded-full ${demoModeActive ? 'bg-cyan-400' : 'bg-slate-500'}`;
+      }
+    }
+
+    // =========================================================================
     // DEMO / SIMULATION GENERATOR (WHEN HW IS OFFLINE)
     // =========================================================================
     let simAngle = 0;
@@ -732,7 +799,9 @@
 
     // Initial render & start polling
     drawRadarField([]);
+    checkSerialStatus();
     pollInterval = setInterval(pollTelemetry, 200);
+    setInterval(checkSerialStatus, 1500);
   </script>
 </body>
 </html>
