@@ -433,7 +433,7 @@ def main():
     last_radar_print = time.ticks_ms()
     last_auto_tx     = time.ticks_ms()
     auto_cycle_level = 1
-    auto_tx_enabled  = False
+    auto_tx_enabled  = True  # Automatically transmits fan commands out of the box
 
     current_temp = None
     current_rh = None
