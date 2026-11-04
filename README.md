@@ -131,6 +131,8 @@ AtomQuest2026/
 │       ├── with_motor_i2c.csv
 │       ├── nomotor_i2c.csv
 │       └── switch_off_i2c.csv
+├── dashboard/
+│   └── index.html                      # Real-time Web Dashboard (Radar, T/RH, Fan HUD, Web Serial)
 ├── docs/
 │   ├── NODEVAYU_IR_INTERFACE_SPEC.md   # Official Hardware & Interface Control Document (ICD)
 │   └── REVERSE_ENGINEERING.md          # Technical Dossier: Silicon Teardown & Protocol Analysis
